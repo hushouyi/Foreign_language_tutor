@@ -101,7 +101,7 @@ def main():
     # ── 开场白 ──
     welcome_text = f"Hey there! I'm {name}. Let's practice English. What's up today?"
     welcome_zh = f"嘿！我是{name}。今天想聊点什么？"
-    print(f"\n{name}[{current_lang['display']}]: ", end="")
+    print(f"\n{name}[{current_lang['display']}]: {welcome_text}")
     tts.speak(welcome_text)
     print(f"📝 中文: {welcome_zh}")
 
@@ -117,8 +117,9 @@ def main():
 
             # 退出
             if user_input.lower() in ("bye", "exit", "quit", "goodbye", "再见"):
-                print(f"\n{name}[{current_lang['display']}]: ", end="")
-                tts.speak("Great talking with you! Keep practicing, see you next time!")
+                farewell_text = "Great talking with you! Keep practicing, see you next time!"
+                print(f"\n{name}[{current_lang['display']}]: {farewell_text}")
+                tts.speak(farewell_text)
                 print("\n👋 再见！")
                 break
 
@@ -148,8 +149,9 @@ def main():
                     conv.set_system_prompt(new_lang["prompt"])
 
                     print(f"\n🔄 已切换到 {new_lang['display']}")
-                    print(f"\n{name}[{new_lang['display']}]: ", end="")
-                    tts.speak(f"Okay! Let's practice {new_key} now. What do you want to talk about?")
+                    switch_text = f"Okay! Let's practice {new_key} now. What do you want to talk about?"
+                    print(f"\n{name}[{new_lang['display']}]: {switch_text}")
+                    tts.speak(switch_text)
                     continue
                 else:
                     _pending_lang = None
@@ -160,8 +162,9 @@ def main():
             if switch_to and switch_to != current_lang_key:
                 _pending_lang = switch_to
                 target_display = cfg.LANGUAGE_CONFIGS[switch_to]["display"]
-                print(f"\n{name}[{current_lang['display']}]: ", end="")
-                tts.speak(f"Do you want to switch to {target_display}? Just say yes or no.")
+                confirm_text = f"Do you want to switch to {target_display}? Just say yes or no."
+                print(f"\n{name}[{current_lang['display']}]: {confirm_text}")
+                tts.speak(confirm_text)
                 continue
 
             # ── 正常对话 ──
@@ -171,7 +174,7 @@ def main():
                 max_tokens=cfg.MAX_TOKENS,
             )
             content, chinese = parse_response(reply)
-            print(f"\n{name}[{current_lang['display']}]: ", end="")
+            print(f"\n{name}[{current_lang['display']}]: {content}")
             tts.speak(content)
             if chinese:
                 print(f"📝 中文: {chinese}")

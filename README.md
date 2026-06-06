@@ -10,11 +10,11 @@
 
 ```
 Alice[English]: Hey there! I'm Alice. Let's practice English. What's up today?
+📝 中文: 嘿！我是爱丽丝。今天想聊点什么？
 
 📝 You: Hi Alice, I went to the park yesterday
 
 Alice[English]: Oh nice! What did you do at the park?
-
 📝 中文: 哦，不错！你在公园做了什么？
 ```
 
