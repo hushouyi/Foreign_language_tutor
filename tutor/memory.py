@@ -49,10 +49,22 @@ class MemoryManager:
         # 关系信息
         session_count = int(self._memories.get("session_count", 0))
         first_seen = self._memories.get("first_seen", "today")
-        today = datetime.now().strftime("%Y-%m-%d")
+        now = datetime.now()
+        today = now.strftime("%Y-%m-%d")
+        hour = now.hour
+        if hour < 6:
+            time_desc = "深夜"
+        elif hour < 12:
+            time_desc = "上午"
+        elif hour < 14:
+            time_desc = "中午"
+        elif hour < 18:
+            time_desc = "下午"
+        else:
+            time_desc = "晚上"
 
         lines = [
-            f"[Memory]  Today: {today}. "
+            f"[Memory]  Today: {today} ({time_desc}). "
             f"You first met this user on: {first_seen}. "
             f"This is session #{session_count}. "
             f"Relationship: the more you chat, the closer and warmer you become.",
