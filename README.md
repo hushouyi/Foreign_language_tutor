@@ -2,18 +2,24 @@
 
 基于 **DeepSeek + edge-tts** 的多语种 AI 语音对话工具。键盘输入文本，AI 用真人语音回复并附中文翻译。
 
-支持英语 / 日语 / 韩语 / 法语 / 德语 / 西班牙语 等多语种对话，只需修改配置文件即可切换语言和角色。
+支持多语种，启动时指定或对话中随时切换。
 
 ## 效果
 
 ```
-🎙️ Alice: Hey there! I'm Alice. Let's practice English. What's up today?
+Alice[English]: Hey there! I'm Alice. Let's practice English. What's up today?
 
-📝 You: Hi Alice, I went to the park yesterday
+📝 You: switch to japanese
 
-🎙️ Alice: Oh nice! What did you do at the park?
+Alice[English]: Do you want to switch to 日本語?
 
-📝 中文: 哦，不错！你在公园做了什么？
+📝 You: yes
+
+🔄 已切换到 日本語
+
+Alice[日本語]: こんにちは！アリスです。今日は何を話しましょうか？
+
+📝 中文: 你好！我是爱丽丝。今天聊点什么？
 ```
 
 ## 快速开始
@@ -24,9 +30,9 @@
 pip install -r requirements.txt
 ```
 
-> **Windows 用户**：直接安装即可，底层音频播放使用系统自带组件。
+> **Windows 用户**：直接安装即可。
 >
-> **Linux/macOS 用户**：edge-tts 可跨平台使用，但音频播放部分需自行适配（当前基于 PowerShell SoundPlayer）。
+> **Linux/macOS 用户**：edge-tts 可跨平台使用，但音频播放部分需自行适配。
 
 ### 2. 配置 API Key
 
@@ -41,75 +47,62 @@ DEEPSEEK_API_KEY = "sk-your-key-here"
 ### 3. 运行
 
 ```bash
-python main.py
+python main.py                    # 默认英语
+python main.py --lang japanese    # 日语模式启动
+python main.py --lang french      # 法语模式启动
 ```
 
-输入 `bye` 或 `exit` 退出，`clear` 清空对话历史。
+## 对话中切换语种
 
-## 多语种切换
+在对话中随时输入：
 
-改 `config.py` 里的 **语音** 和 **人物 prompt** 即可切换语种。
-
-### 日语示例
-
-```python
-EDGE_TTS_VOICE = "ja-JP-NanamiNeural"
-
-CHARACTER_PROMPT = (
-    "あなたは佐藤さんです。日本語を勉強している中国人学習者を助けています。"
-    "毎回の返事の最後に「---」を入れて、その後に中国語の翻訳を追加してください。"
-    ...
-)
+```
+switch to japanese
+speak french
+change to english
 ```
 
-### 法语示例
+Alice 会确认后切换，保留之前的对话上下文。
 
-```python
-EDGE_TTS_VOICE = "fr-FR-DeniseNeural"
+## 配置文件
 
-CHARACTER_PROMPT = (
-    "You are Sophie, a friendly French teacher from Paris. "
-    "You are helping a Chinese learner practice French. "
-    ...
-)
-```
-
-## 自定义
-
-所有配置集中在 [`config.py`](config.py)，无需修改代码：
+所有设置集中在 [`config.py`](config.py)，无需修改代码：
 
 | 配置项 | 说明 |
 |--------|------|
+| `LANGUAGE` | 默认语种 |
+| `LANGUAGE_CONFIGS` | 语种配置（可扩展添加） |
 | `CHARACTER_NAME` | AI 角色名字 |
-| `CHARACTER_PROMPT` | 完整人物设定（语言、性格、行为规则） |
-| `TTS_ENGINE` | 语音引擎：`edge-tts`（推荐）或 `pyttsx3` |
-| `EDGE_TTS_VOICE` | 微软神经语音（支持 50+ 语种） |
+| `TTS_ENGINE` | 语音引擎：`edge-tts` / `pyttsx3` |
 | `DEEPSEEK_MODEL` | 模型：`deepseek-chat` / `deepseek-reasoner` |
-| `LLM_ENGINE` | 预留字段，后续支持 OpenAI / Anthropic |
+
+### 添加新语种
+
+在 `config.py` 的 `LANGUAGE_CONFIGS` 中添加即可：
+
+```python
+"korean": {
+    "display": "한국어",
+    "voice": "ko-KR-SunHiNeural",
+    "prompt": "...",
+},
+```
 
 ## 项目结构
 
 ```
-├── main.py              # 入口 (python main.py)
-├── config.py            # 配置（角色、引擎、模型、语种）
-├── requirements.txt     # Python 依赖
+├── main.py              # 入口
+├── config.py            # 配置（语种、角色、引擎、模型）
+├── requirements.txt
 ├── .gitignore
 ├── README.md
-└── tutor/               # 核心模块
-    ├── tts.py           # TTS 引擎（edge-tts / pyttsx3）
-    ├── asr.py           # ASR 引擎（当前键盘，预留 MIC）
-    ├── llm.py           # LLM 引擎（当前 DeepSeek）
-    ├── conversation.py  # 对话历史管理
+└── tutor/
+    ├── tts.py           # TTS 引擎
+    ├── asr.py           # ASR 引擎（预留 MIC）
+    ├── llm.py           # LLM 引擎
+    ├── conversation.py  # 对话管理
     └── utils.py         # 工具函数
 ```
-
-## 扩展计划
-
-- [ ] 麦克风语音输入（Whisper / speech-recognition）
-- [ ] 更多 LLM 支持（OpenAI、Claude、本地模型）
-- [ ] 对话记录保存与导出
-- [ ] 非 Windows 音频播放适配
-- [ ] Web / GUI 界面
 
 ## 许可
 

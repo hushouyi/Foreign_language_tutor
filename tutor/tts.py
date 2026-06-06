@@ -20,11 +20,13 @@ class EdgeTTSProvider(TTSProvider):
     def __init__(self, voice: str):
         self.voice = voice
 
+    def set_voice(self, voice: str):
+        """运行时切换语音"""
+        self.voice = voice
+
     def speak(self, text: str) -> None:
         import miniaudio
         import wave as wave_mod
-
-        print(f"\n🎙️ {text}")
 
         async def _gen():
             import edge_tts as _edge_tts
@@ -78,7 +80,6 @@ class Pyttsx3Provider(TTSProvider):
         self._engine = engine
 
     def speak(self, text: str) -> None:
-        print(f"\n🎙️ {text}")
         self._engine.say(text)
         self._engine.runAndWait()
         self._engine.stop()
@@ -87,7 +88,7 @@ class Pyttsx3Provider(TTSProvider):
 def create_tts_provider(config: dict) -> TTSProvider:
     engine = config["TTS_ENGINE"]
     if engine == "edge-tts":
-        return EdgeTTSProvider(voice=config["EDGE_TTS_VOICE"])
+        return EdgeTTSProvider(voice=config["lang"]["voice"])
     elif engine == "pyttsx3":
         return Pyttsx3Provider(rate=config["PYTTX3_RATE"], volume=config["PYTTX3_VOLUME"])
     else:
