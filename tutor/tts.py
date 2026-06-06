@@ -7,6 +7,7 @@ import asyncio
 import os
 import subprocess
 import tempfile
+import threading
 
 
 class TTSProvider(abc.ABC):
@@ -15,17 +16,36 @@ class TTSProvider(abc.ABC):
         """返回 True 表示播放成功，False 表示失败"""
         ...
 
+    def cancel(self):
+        """取消当前播放（默认空实现）"""
+        pass
+
 
 class EdgeTTSProvider(TTSProvider):
     """edge-tts 合成 → miniaudio 解码 → WAV → PowerShell SoundPlayer 播放"""
+
     def __init__(self, voice: str):
         self.voice = voice
+        self._process = None
+        self._proc_lock = threading.Lock()
+
+    def cancel(self):
+        """取消当前正在播放的语音"""
+        with self._proc_lock:
+            if self._process and self._process.poll() is None:
+                try:
+                    self._process.kill()
+                    self._process.wait(timeout=5)
+                except Exception:
+                    pass
+                self._process = None
 
     def set_voice(self, voice: str):
         """运行时切换语音"""
         self.voice = voice
 
-    def speak(self, text: str) -> bool:
+    def _generate_wav(self, text: str):
+        """生成音频，返回 mp3_path, wav_path"""
         import miniaudio
         import wave as wave_mod
 
@@ -37,35 +57,67 @@ class EdgeTTSProvider(TTSProvider):
             await communicate.save(tmp.name)
             return tmp.name
 
-        mp3_path = None
-        wav_path = None
+        mp3_path = asyncio.run(_gen())
+        wav_fd, wav_path = tempfile.mkstemp(suffix=".wav")
+        os.close(wav_fd)
+        decoded = miniaudio.decode_file(mp3_path, output_format=miniaudio.SampleFormat.SIGNED16)
+        with wave_mod.open(wav_path, "wb") as wf:
+            wf.setnchannels(decoded.nchannels)
+            wf.setsampwidth(2)
+            wf.setframerate(decoded.sample_rate)
+            wf.writeframes(decoded.samples.tobytes())
+        return mp3_path, wav_path
+
+    def _play_wav(self, wav_path: str):
+        """启动 PowerShell SoundPlayer 播放并记录进程"""
+        proc = subprocess.Popen(
+            ["powershell", "-c",
+             f"$p = New-Object System.Media.SoundPlayer; "
+             f"$p.SoundLocation = '{wav_path}'; "
+             f"$p.PlaySync()"],
+        )
+        with self._proc_lock:
+            self._process = proc
+        return proc
+
+    def speak(self, text: str) -> bool:
+        """同步朗读（阻塞直到播完），可在其他线程运行"""
+        mp3_path = wav_path = None
         try:
-            mp3_path = asyncio.run(_gen())
-            wav_fd, wav_path = tempfile.mkstemp(suffix=".wav")
-            os.close(wav_fd)
-            decoded = miniaudio.decode_file(mp3_path, output_format=miniaudio.SampleFormat.SIGNED16)
-            with wave_mod.open(wav_path, "wb") as wf:
-                wf.setnchannels(decoded.nchannels)
-                wf.setsampwidth(2)
-                wf.setframerate(decoded.sample_rate)
-                wf.writeframes(decoded.samples.tobytes())
-            subprocess.run(
-                ["powershell", "-c",
-                 f"$p = New-Object System.Media.SoundPlayer; "
-                 f"$p.SoundLocation = '{wav_path}'; "
-                 f"$p.PlaySync()"],
-                capture_output=True, timeout=120,
-            )
+            mp3_path, wav_path = self._generate_wav(text)
+            proc = self._play_wav(wav_path)
+            proc.wait()
             return True
         except Exception:
             return False
         finally:
+            with self._proc_lock:
+                self._process = None
             for p in (mp3_path, wav_path):
-                if p:
+                try:
+                    os.unlink(p)
+                except Exception:
+                    pass
+
+    def speak_async(self, text: str):
+        """非阻塞朗读。返回一个 wait() 函数，调用后等待播完并清理。"""
+        try:
+            mp3_path, wav_path = self._generate_wav(text)
+            proc = self._play_wav(wav_path)
+            paths = (mp3_path, wav_path)
+
+            def wait():
+                proc.wait()
+                with self._proc_lock:
+                    self._process = None
+                for p in paths:
                     try:
                         os.unlink(p)
                     except Exception:
                         pass
+            return wait
+        except Exception:
+            return lambda: None
 
 
 class Pyttsx3Provider(TTSProvider):

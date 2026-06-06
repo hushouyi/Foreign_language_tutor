@@ -18,7 +18,7 @@ class ASRProvider(abc.ABC):
 
 class KeyboardInputProvider(ASRProvider):
     def listen(self) -> str:
-        return input("\n📝 You: ").strip()
+        return input("You: ").strip()
 
     @property
     def name(self) -> str:

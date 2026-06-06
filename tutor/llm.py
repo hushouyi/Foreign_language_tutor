@@ -36,10 +36,10 @@ class DeepSeekProvider(LLMProvider):
             resp.raise_for_status()
             return resp.json()["choices"][0]["message"]["content"]
         except requests.exceptions.RequestException as e:
-            print(f"\n⚠ 网络错误: {e}")
+            print(f"\n[错误] 网络错误: {e}")
             return "Sorry, I'm having trouble connecting. Please check your internet and try again."
         except (KeyError, IndexError, json.JSONDecodeError) as e:
-            print(f"\n⚠ API 响应解析错误: {e}")
+            print(f"\n[错误] API 响应解析错误: {e}")
             return "Sorry, something went wrong. Please try again."
 
 

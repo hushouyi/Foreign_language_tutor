@@ -4,6 +4,7 @@
 
 import json
 import os
+from datetime import datetime
 
 _PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 _MEMORY_FILE = os.path.join(_PROJECT_ROOT, "memory", "user_profile.json")
@@ -27,16 +28,39 @@ class MemoryManager:
         with open(_MEMORY_FILE, "w", encoding="utf-8") as f:
             json.dump(self._memories, f, ensure_ascii=False, indent=2)
 
+    def on_session_start(self):
+        """每次启动时调用：记录首次日期、递增会话次数"""
+        today = datetime.now().strftime("%Y-%m-%d")
+        if "first_seen" not in self._memories:
+            self._memories["first_seen"] = today
+        session_count = int(self._memories.get("session_count", 0))
+        self._memories["session_count"] = str(session_count + 1)
+        self._save()
+
     def get_context(self) -> str:
-        """返回格式化记忆字串，注入到 system prompt。无记忆时返回空字串"""
-        if not self._memories:
-            return ""
-        parts = [f"  {k}: {v}" for k, v in self._memories.items()]
-        return (
-            "[Your memory from past conversations]\n"
-            + "\n".join(parts)
-            + "\n[/Memory]"
-        )
+        """返回格式化记忆 + 关系信息，注入到 system prompt"""
+        parts = []
+        # 用户记忆
+        for k, v in self._memories.items():
+            if k in ("first_seen", "session_count"):
+                continue
+            parts.append(f"  {k}: {v}")
+
+        # 关系信息
+        session_count = int(self._memories.get("session_count", 0))
+        first_seen = self._memories.get("first_seen", "today")
+        today = datetime.now().strftime("%Y-%m-%d")
+
+        lines = [
+            f"[Memory]  Today: {today}. "
+            f"You first met this user on: {first_seen}. "
+            f"This is session #{session_count}. "
+            f"Relationship: the more you chat, the closer and warmer you become.",
+        ]
+        if parts:
+            lines.append("Facts you remember:")
+            lines.extend(parts)
+        return "\n".join(lines)
 
     def process_reply(self, reply: str) -> str:
         """提取并保存 MEMORY_SAVE: 指令，返回清除指令后的回复"""

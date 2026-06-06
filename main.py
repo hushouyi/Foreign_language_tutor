@@ -9,6 +9,8 @@ AI 语言助教 - 主程序
 import argparse
 import re
 import sys
+import threading
+import time
 
 import config as cfg
 from tutor.asr import create_asr_provider
@@ -18,6 +20,11 @@ from tutor.memory import MemoryManager
 from tutor.tts import create_tts_provider
 from tutor.utils import parse_response
 
+from rich.console import Console
+from rich.panel import Panel
+
+console = Console()
+
 
 def resolve_lang(lang_key: str):
     lang = lang_key.lower()
@@ -26,7 +33,7 @@ def resolve_lang(lang_key: str):
     for key, val in cfg.LANGUAGE_CONFIGS.items():
         if key.startswith(lang) or lang.startswith(key):
             return key, val
-    print(f"⚠ 未知语种: {lang_key}，可用: {', '.join(cfg.LANGUAGE_CONFIGS.keys())}")
+    console.print(f"[red]未知语种: {lang_key}，可用: {', '.join(cfg.LANGUAGE_CONFIGS.keys())}[/red]")
     sys.exit(1)
 
 
@@ -43,6 +50,35 @@ def _script_mismatch(text: str, lang_key: str) -> bool:
     if lang_key in ("japanese",) and not has_cjk:
         return True
     return False
+
+
+def _display_ai(segments, name, lang_display, tts):
+    """面板显示 AI 回复 + 后台 TTS。
+    逐段显示（主线程，每段间隔约 2 秒），完整音频在后台连续播放。
+    输入提示会在所有段显示完后出现，但语音继续播放。"""
+    if not segments:
+        return
+
+    # 后台播放完整音频（连续，不阻塞显示和输入）
+    full_text = _strip_emoji(" ".join(c for c, _ in segments))
+    if full_text.strip():
+        tts.cancel()
+        threading.Thread(target=tts.speak, args=(full_text,), daemon=True).start()
+
+    # 主线程逐段显示（阻塞 2 秒/段，但音频在后台不中断）
+    for i, (content, chinese) in enumerate(segments):
+        text = content
+        if chinese:
+            text += f"\n\n[dim][中文] {chinese}[/dim]"
+        console.print(Panel(
+            text,
+            title=f"{name} [{lang_display}]",
+            border_style="cyan",
+            padding=(1, 2),
+        ))
+        if i < len(segments) - 1:
+            time.sleep(2)
+    console.print("[dim]   speaking...[/dim]")
 
 
 def main():
@@ -73,6 +109,7 @@ def main():
     asr = create_asr_provider(config)
     llm = create_llm_provider(config)
     memory = MemoryManager()
+    memory.on_session_start()
     conv = Conversation(
         llm,
         system_prompt=current_lang["prompt"],
@@ -83,52 +120,77 @@ def main():
         conv.history.append({"role": "system", "content": memory_ctx})
 
     # ── Banner ──
-    print("=" * 55)
-    print(f"  {name} · AI 语言助教")
-    print("=" * 55)
-    print(f"  语种: {current_lang['display']}  |  TTS: {cfg.TTS_ENGINE}  |  LLM: {cfg.LLM_ENGINE}")
-    print("-" * 55)
-    print(f"  输入对话，{name} 会语音回复 + 中文翻译")
-    print("  切换语种: \"说日语\" / \"speak French\" / \"switch to spanish\" 等")
-    print("  bye / exit 退出  |  clear 清空历史")
-    print("=" * 55)
+    console.print("=" * 52)
+    console.print(f"  {name} - AI 语言助教")
+    console.print("=" * 52)
+    console.print(f"  [cyan]语种: {current_lang['display']}[/cyan]  |  TTS: {cfg.TTS_ENGINE}  |  LLM: {cfg.LLM_ENGINE}")
+    console.print("-" * 52)
+    console.print("  输入对话，Alice 会语音回复 + 中文翻译")
+    console.print('  切换语种: "说日语" / "speak French" / "switch to spanish" 等')
+    console.print("  bye / exit 退出  |  clear 清空历史")
+    console.print("=" * 52)
 
-    # ── 开场白 ──
-    welcome_text = current_lang["hello"]
-    welcome_zh = current_lang["hello_zh"]
-    print(f"\n{name}[{current_lang['display']}]: {welcome_text}")
-    tts.speak(_strip_emoji(welcome_text))
-    print(f"📝 中文: {welcome_zh}")
+    # ── 动态开场白（AI 生成，每次不同）──
+    conv.history.append({
+        "role": "system",
+        "content": "Greet the user warmly but concisely — 1-2 sentences, friendly tone, "
+                   "under 25 words total. Show warmth but keep it brief. "
+                   "Be creative each time. Follow the normal reply format (with full Chinese translation)."
+    })
+    with console.status("[cyan]Alice thinking...", spinner="dots"):
+        welcome_reply = llm.chat(conv.history, temperature=cfg.TEMPERATURE, max_tokens=600)
+    conv.history.pop()
+    welcome_reply = memory.process_reply(welcome_reply)
+    segments = parse_response(welcome_reply)
+    _display_ai(segments, name, current_lang['display'], tts)
 
     # ── 主循环 ──
     while True:
         try:
+            console.print("─" * 52)  # 分隔线 + 输入提示
             user_input = asr.listen()
             if not user_input:
                 continue
 
+            # 正常对话发言加框显示（bye/clear 等命令不处理）
+            is_chat = user_input.lower() not in ("bye", "exit", "quit", "goodbye", "再见", "clear")
+            if is_chat:
+                console.print(Panel(
+                    user_input,
+                    title="You",
+                    border_style="yellow",
+                    padding=(1, 2),
+                ))
+
             # 退出
             if user_input.lower() in ("bye", "exit", "quit", "goodbye", "再见"):
                 farewell_text = "Great talking with you! Keep practicing, see you next time!"
-                print(f"\n{name}[{current_lang['display']}]: {farewell_text}")
+                console.print(Panel(
+                    farewell_text,
+                    title=f"{name} [{current_lang['display']}]",
+                    border_style="cyan",
+                    padding=(1, 2),
+                ))
                 tts.speak(_strip_emoji(farewell_text))
-                print("\n👋 再见！")
+                console.print("[green]Bye![/green]")
                 break
 
             # 清空历史
             if user_input.lower() == "clear":
                 conv.clear()
-                print("✓ 对话历史已清空")
+                console.print("[green]对话历史已清空[/green]")
                 continue
 
-            # ── 检测语言切换请求（LANG_SWITCH:xxx 前缀）──
-            reply = conv.ask(
-                user_input,
-                temperature=cfg.TEMPERATURE,
-                max_tokens=cfg.MAX_TOKENS,
-            )
-            reply = memory.process_reply(reply)
+            # ── AI 生成回复 ──
+            with console.status("[cyan]Alice thinking...", spinner="dots"):
+                reply = conv.ask(
+                    user_input,
+                    temperature=cfg.TEMPERATURE,
+                    max_tokens=cfg.MAX_TOKENS,
+                )
+                reply = memory.process_reply(reply)
 
+            # ── 检测语言切换请求（LANG_SWITCH:xxx 前缀）──
             if reply.startswith("LANG_SWITCH:"):
                 lines = reply.split("\n", 1)
                 target_key = lines[0].replace("LANG_SWITCH:", "").strip()
@@ -137,20 +199,27 @@ def main():
                     # 显示 AI 的确认问题（LANG_SWITCH: 之后的内容）
                     if len(lines) > 1 and lines[1].strip():
                         question = lines[1].strip()
-                        print(f"\n{name}[{current_lang['display']}]: {question}")
+                        console.print(Panel(
+                            question,
+                            title=f"{name} [{current_lang['display']}]",
+                            border_style="cyan",
+                            padding=(1, 2),
+                        ))
                         tts.speak(_strip_emoji(question))
 
-                    # 等用户回复 → 交给 AI 自然理解
+                    # 等用户回复
+                    console.print("─" * 52)  # 分隔线 + 输入提示
                     user_confirm = asr.listen()
                     if not user_confirm:
                         continue
 
-                    confirm_reply = conv.ask(
-                        user_confirm,
-                        temperature=cfg.TEMPERATURE,
-                        max_tokens=cfg.MAX_TOKENS,
-                    )
-                    confirm_reply = memory.process_reply(confirm_reply)
+                    with console.status("[cyan]Alice thinking...", spinner="dots"):
+                        confirm_reply = conv.ask(
+                            user_confirm,
+                            temperature=cfg.TEMPERATURE,
+                            max_tokens=cfg.MAX_TOKENS,
+                        )
+                        confirm_reply = memory.process_reply(confirm_reply)
 
                     # AI 以 LANG_SWITCH:confirmed: 开头表示确认切换
                     if confirm_reply.startswith("LANG_SWITCH:confirmed:"):
@@ -167,21 +236,16 @@ def main():
 
                             # 显示 AI 的欢迎回复（去掉确认前缀）
                             rest = confirm_reply.split("\n", 1)[1] if "\n" in confirm_reply else ""
-                            content, chinese = parse_response(rest)
-                            print(f"\n🔄 已切换到 {new_lang['display']}")
-                            print(f"\n{name}[{new_lang['display']}]: {content}")
-                            tts.speak(_strip_emoji(content))
-                            if chinese:
-                                print(f"📝 中文: {chinese}")
+                            switch_segments = parse_response(rest)
+                            if switch_segments:
+                                console.print(f"\n[green]切换 -> {new_lang['display']}[/green]")
+                                _display_ai(switch_segments, name, new_lang['display'], tts)
                             continue
-                        # 无效的确认 key，当作普通回复处理
 
-                    # AI 未确认切换 → 正常显示回复
-                    content, chinese = parse_response(confirm_reply)
-                    print(f"\n{name}[{current_lang['display']}]: {content}")
-                    tts.speak(_strip_emoji(content))
-                    if chinese:
-                        print(f"📝 中文: {chinese}")
+                    # AI 未确认切换
+                    decline_segments = parse_response(confirm_reply)
+                    if decline_segments:
+                        _display_ai(decline_segments, name, current_lang['display'], tts)
                     # 清除对话历史中的 LANG_SWITCH 痕迹，保持语种一致
                     conv.history = [m for m in conv.history
                                     if not m["content"].startswith("LANG_SWITCH:")]
@@ -192,20 +256,21 @@ def main():
                 continue
 
             # ── 正常回复解析（非 LANG_SWITCH）──
-            content, chinese = parse_response(reply)
-            print(f"\n{name}[{current_lang['display']}]: {content}")
-            ok = tts.speak(_strip_emoji(content))
-            if chinese:
-                print(f"📝 中文: {chinese}")
-            if not ok and _script_mismatch(content, current_lang_key):
-                print(f"💡 AI 似乎用了其他语言回复。需要切换语种的话，可以说 \"switch to japanese\" 或 \"说英语\" 等")
+            segments = parse_response(reply)
+            if not segments:
+                continue
+
+            _display_ai(segments, name, current_lang['display'], tts)
+
+            if _script_mismatch(segments[0][0], current_lang_key):
+                console.print("[yellow]提示: AI 似乎用了其他语言回复，可以说 \"switch to japanese\" 切换语种[/yellow]")
 
         except KeyboardInterrupt:
-            print("\n\n👋 再见！")
+            console.print("\n[green]Bye![/green]")
             break
         except Exception as e:
-            print(f"\n⚠ 发生错误: {e}")
-            print("  请重试或输入 'bye' 退出")
+            console.print(f"\n[red]错误: {e}[/red]")
+            console.print("  请重试或输入 'bye' 退出")
 
 
 if __name__ == "__main__":
