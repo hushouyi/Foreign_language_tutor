@@ -1,6 +1,6 @@
 """
-OpenClaw AI 语音助手 - 主程序
-=============================
+AI 语言助教 - 主程序
+====================
 用法:
   python main.py                    # 默认英语
   python main.py --lang japanese    # 日语模式启动
@@ -47,7 +47,7 @@ def _script_mismatch(text: str, lang_key: str) -> bool:
 
 def main():
     # ── 命令行参数 ──
-    parser = argparse.ArgumentParser(description="OpenClaw AI 语音助手")
+    parser = argparse.ArgumentParser(description="AI 语言助教")
     parser.add_argument("--lang", default=cfg.LANGUAGE,
                         help=f"语种: {', '.join(cfg.LANGUAGE_CONFIGS.keys())} (默认: {cfg.LANGUAGE})")
     args = parser.parse_args()

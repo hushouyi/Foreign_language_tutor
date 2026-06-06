@@ -1,4 +1,4 @@
-# OpenClaw AI 语言助教
+# AI 语言助教
 
 基于 **DeepSeek V4 Flash + edge-tts** 的多语种 AI 语言练习伙伴。键盘输入文本，AI 用真人语音回复并附中文翻译。
 
