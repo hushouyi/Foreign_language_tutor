@@ -11,7 +11,8 @@ import tempfile
 
 class TTSProvider(abc.ABC):
     @abc.abstractmethod
-    def speak(self, text: str) -> None:
+    def speak(self, text: str) -> bool:
+        """返回 True 表示播放成功，False 表示失败"""
         ...
 
 
@@ -24,7 +25,7 @@ class EdgeTTSProvider(TTSProvider):
         """运行时切换语音"""
         self.voice = voice
 
-    def speak(self, text: str) -> None:
+    def speak(self, text: str) -> bool:
         import miniaudio
         import wave as wave_mod
 
@@ -55,8 +56,9 @@ class EdgeTTSProvider(TTSProvider):
                  f"$p.PlaySync()"],
                 capture_output=True, timeout=120,
             )
-        except Exception as e:
-            print(f"⚠ 语音播放失败: {e}")
+            return True
+        except Exception:
+            return False
         finally:
             for p in (mp3_path, wav_path):
                 if p:
@@ -79,10 +81,11 @@ class Pyttsx3Provider(TTSProvider):
         engine.setProperty("volume", volume)
         self._engine = engine
 
-    def speak(self, text: str) -> None:
+    def speak(self, text: str) -> bool:
         self._engine.say(text)
         self._engine.runAndWait()
         self._engine.stop()
+        return True
 
 
 def create_tts_provider(config: dict) -> TTSProvider:
