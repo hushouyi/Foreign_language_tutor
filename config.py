@@ -9,7 +9,7 @@ OpenClaw AI 语音助手 - 配置文件
 # ║                      DeepSeek API                           ║
 # ╚══════════════════════════════════════════════════════════════╝
 
-DEEPSEEK_API_KEY = "sk-your-key-here"
+DEEPSEEK_API_KEY = "YOUR_API_KEY_HERE"
 DEEPSEEK_API_URL = "https://api.deepseek.com/v1/chat/completions"
 DEEPSEEK_MODEL = "deepseek-chat"
 

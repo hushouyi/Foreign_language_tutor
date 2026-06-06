@@ -30,21 +30,38 @@ def resolve_lang(lang_key: str):
     sys.exit(1)
 
 
+# 中文语种名称 → 配置 key 映射
+CHINESE_LANG_NAMES = {
+    "英文": "english", "英语": "english",
+    "日文": "japanese", "日语": "japanese",
+    "法文": "french", "法语": "french",
+    "西班牙语": "spanish", "西语": "spanish",
+}
+
+
 def detect_switch_request(text: str):
-    """检测用户是否请求切换语种，返回 (lang_key, confirm_needed) 或 None"""
+    """检测用户是否请求切换语种"""
     lower = text.lower()
     for key in cfg.LANGUAGE_CONFIGS:
         display = cfg.LANGUAGE_CONFIGS[key]["display"].lower()
-        # 匹配: switch to X, change to X, speak X, use X
         triggers = [
             f"switch to {key}", f"switch to {display}",
             f"change to {key}", f"change to {display}",
             f"speak {key}", f"speak {display}",
             f"use {key}", f"use {display}",
             f"let's speak {key}", f"let's speak {display}",
+            f"can you speak {key}", f"can you speak {display}",
+            f"speak in {key}", f"speak in {display}",
+            f"talk in {key}", f"talk in {display}",
+            f"i want to practice {key}", f"i want to practice {display}",
+            f"practice {key}", f"practice {display}",
         ]
         if any(t in lower for t in triggers):
             return key
+    # 中文匹配
+    for cn_name, cn_key in CHINESE_LANG_NAMES.items():
+        if cn_name in text and cn_key in cfg.LANGUAGE_CONFIGS:
+            return cn_key
     return None
 
 
