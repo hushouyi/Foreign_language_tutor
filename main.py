@@ -99,8 +99,11 @@ def main():
     print("=" * 55)
 
     # ── 开场白 ──
+    welcome_text = f"Hey there! I'm {name}. Let's practice English. What's up today?"
+    welcome_zh = f"嘿！我是{name}。今天想聊点什么？"
     print(f"\n{name}[{current_lang['display']}]: ", end="")
-    tts.speak(f"Hey there! I'm {name}. Let's practice English. What's up today?")
+    tts.speak(welcome_text)
+    print(f"📝 中文: {welcome_zh}")
 
     # ── 语言切换状态 ──
     _pending_lang = None  # 待切换的语种 key
