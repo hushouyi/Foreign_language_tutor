@@ -6,9 +6,21 @@
 
 ## 效果
 
+### 正常对话
+
 ```
 Alice[English]: Hey there! I'm Alice. Let's practice English. What's up today?
 
+📝 You: Hi Alice, I went to the park yesterday
+
+Alice[English]: Oh nice! What did you do at the park?
+
+📝 中文: 哦，不错！你在公园做了什么？
+```
+
+### 切换语种
+
+```
 📝 You: switch to japanese
 
 Alice[English]: Do you want to switch to 日本語?
