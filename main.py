@@ -10,7 +10,6 @@ import argparse
 import re
 import sys
 import threading
-import time
 
 import config as cfg
 from tutor.asr import create_asr_provider
@@ -52,21 +51,14 @@ def _script_mismatch(text: str, lang_key: str) -> bool:
     return False
 
 
+
+
 def _display_ai(segments, name, lang_display, tts):
-    """面板显示 AI 回复 + 后台 TTS。
-    逐段显示（主线程，每段间隔约 2 秒），完整音频在后台连续播放。
-    输入提示会在所有段显示完后出现，但语音继续播放。"""
+    """一次性显示所有段落 + 后台 TTS 播放。不阻塞输入。"""
     if not segments:
         return
 
-    # 后台播放完整音频（连续，不阻塞显示和输入）
-    full_text = _strip_emoji(" ".join(c for c, _ in segments))
-    if full_text.strip():
-        tts.cancel()
-        threading.Thread(target=tts.speak, args=(full_text,), daemon=True).start()
-
-    # 主线程逐段显示（阻塞 2 秒/段，但音频在后台不中断）
-    for i, (content, chinese) in enumerate(segments):
+    for content, chinese in segments:
         text = content
         if chinese:
             text += f"\n\n[dim][中文] {chinese}[/dim]"
@@ -76,9 +68,12 @@ def _display_ai(segments, name, lang_display, tts):
             border_style="cyan",
             padding=(1, 2),
         ))
-        if i < len(segments) - 1:
-            time.sleep(2)
-    console.print("[dim]   speaking...[/dim]")
+
+    full_text = _strip_emoji(" ".join(c for c, _ in segments))
+    if full_text.strip():
+        tts.cancel()
+        threading.Thread(target=tts.speak, args=(full_text,), daemon=True).start()
+        console.print("[dim]   speaking...[/dim]")
 
 
 def main():
@@ -131,6 +126,7 @@ def main():
     console.print("=" * 52)
 
     # ── 动态开场白（AI 生成，每次不同）──
+    console.print("─" * 52)
     conv.history.append({
         "role": "system",
         "content": "Greet the user warmly but concisely — 1-2 sentences, friendly tone, "
@@ -147,8 +143,9 @@ def main():
     # ── 主循环 ──
     while True:
         try:
-            console.print("─" * 52)  # 分隔线 + 输入提示
+            console.print("─" * 52)  # 输入区上框
             user_input = asr.listen()
+            console.print("─" * 52)  # 输入区下框
             if not user_input:
                 continue
 
@@ -182,6 +179,7 @@ def main():
                 continue
 
             # ── AI 生成回复 ──
+            console.print("─" * 52)  # 分隔线
             with console.status("[cyan]Alice thinking...", spinner="dots"):
                 reply = conv.ask(
                     user_input,
@@ -198,18 +196,23 @@ def main():
                 if target_key in cfg.LANGUAGE_CONFIGS and target_key != current_lang_key:
                     # 显示 AI 的确认问题（LANG_SWITCH: 之后的内容）
                     if len(lines) > 1 and lines[1].strip():
-                        question = lines[1].strip()
+                        q_text = lines[1].strip()
                         console.print(Panel(
-                            question,
+                            q_text,
                             title=f"{name} [{current_lang['display']}]",
                             border_style="cyan",
                             padding=(1, 2),
                         ))
-                        tts.speak(_strip_emoji(question))
+                        # TTS 只读外语部分，不读中文翻译
+                        q_segments = parse_response(q_text)
+                        q_tts = " ".join(c for c, _ in q_segments)
+                        if q_tts.strip():
+                            tts.speak(_strip_emoji(q_tts))
 
                     # 等用户回复
-                    console.print("─" * 52)  # 分隔线 + 输入提示
+                    console.print("─" * 52)  # 输入区上框
                     user_confirm = asr.listen()
+                    console.print("─" * 52)  # 输入区下框
                     if not user_confirm:
                         continue
 
