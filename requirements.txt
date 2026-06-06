@@ -1,0 +1,4 @@
+requests>=2.31.0
+edge-tts>=7.0.0
+miniaudio>=1.60
+# pyttsx3>=2.99  # 可选：离线 TTS（机器人声），需要时取消注释
