@@ -6,19 +6,19 @@ AI 语言助教 - 配置文件
 """
 
 # ╔══════════════════════════════════════════════════════════════╗
-# ║                      DeepSeek API                           ║
+# ║                      LLM 提供商配置                          ║
 # ╚══════════════════════════════════════════════════════════════╝
+# 提供商相关配置（引擎、API key、URL、模型）统一放在 apikey.py 中。
+# 换模型只需改 apikey.py，此文件不需要动。
 
-DEEPSEEK_API_KEY = "sk-your-api-key-here"
-DEEPSEEK_API_URL = "https://api.deepseek.com/v1/chat/completions"
-DEEPSEEK_MODEL = "deepseek-v4-flash"
-
-
-# ╔══════════════════════════════════════════════════════════════╗
-# ║                        LLM 引擎                             ║
-# ╚══════════════════════════════════════════════════════════════╝
-
-LLM_ENGINE = "deepseek"
+try:
+    from apikey import LLM_ENGINE, DEEPSEEK_API_KEY, DEEPSEEK_API_URL, DEEPSEEK_MODEL
+except ImportError:
+    LLM_ENGINE = "deepseek"
+    DEEPSEEK_API_KEY = "sk-your-api-key-here"
+    DEEPSEEK_API_URL = "https://api.deepseek.com/v1/chat/completions"
+    DEEPSEEK_MODEL = "deepseek-v4-flash"
+    print("⚠ 未找到 apikey.py，使用占位符。请创建 apikey.py 并填入你的 key。")
 
 TEMPERATURE = 0.7
 MAX_TOKENS = 600
