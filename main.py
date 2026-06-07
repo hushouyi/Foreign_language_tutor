@@ -159,6 +159,7 @@ def main():
         "LLM_ENGINE": cfg.LLM_ENGINE, "DEEPSEEK_API_KEY": cfg.DEEPSEEK_API_KEY,
         "DEEPSEEK_API_URL": cfg.DEEPSEEK_API_URL,
         "DEEPSEEK_MODEL": cfg.DEEPSEEK_MODEL, "lang": current_lang,
+        "API_TIMEOUT": cfg.API_TIMEOUT,
     }
 
     tts = create_tts_provider(config)
@@ -195,6 +196,8 @@ def main():
     pending_api = False
     api_response = None
     api_lock = threading.Lock()
+    pending_question = None  # 用户在等待时发的新消息（覆盖旧请求）
+    speaking = False         # AI 正在朗读中
 
     # 渐进式显示
     progressive_segments = None   # 当前正在逐段显示的段落
@@ -204,6 +207,7 @@ def main():
 
     # 欢迎词用渐进显示
     if welcome_segments:
+        speaking = True
         progressive_segments = welcome_segments
         progressive_events = [threading.Event() for _ in welcome_segments]
         progressive_events[0].set()
@@ -222,22 +226,25 @@ def main():
     running = True
 
     def _api_call(user_text):
-        nonlocal pending_api, api_response
+        nonlocal pending_api, api_response, pending_question
         try:
-            # 每条用户消息后追加格式提醒，确保 AI 不会忘记
             reminder = ("\n\nIMPORTANT FORMAT: Split your reply into segments. "
                         "Each segment = text + newline + '---' + newline + Chinese translation. "
                         "EVERY segment MUST have Chinese translation!")
             reply = conv.ask(user_text + reminder, temperature=cfg.TEMPERATURE,
                              max_tokens=cfg.MAX_TOKENS)
             reply = memory.process_reply(reply)
-            with api_lock:
-                api_response = reply
         except Exception as e:
-            with api_lock:
-                api_response = f"ERROR:{e}"
-        finally:
-            with api_lock:
+            reply = f"ERROR:{e}"
+
+        with api_lock:
+            if pending_question:
+                # 用户有新问题，丢弃当前回复，用新问题重启
+                new_text = pending_question
+                pending_question = None
+                threading.Thread(target=_api_call, args=(new_text,), daemon=True).start()
+            else:
+                api_response = reply
                 pending_api = False
 
     # ── Live ──
@@ -277,11 +284,16 @@ def main():
                     ))
 
                     tts.cancel()  # 取消之前的 TTS，防止重叠
+                    speaking = False  # 关闭旧的 speaking 状态
 
                     with api_lock:
-                        pending_api = True
-                        api_response = None
-                    threading.Thread(target=_api_call, args=(user_text,), daemon=True).start()
+                        if pending_api:
+                            # AI 正忙，存为待处理（覆盖旧待处理）
+                            pending_question = user_text
+                        else:
+                            pending_api = True
+                            api_response = None
+                            threading.Thread(target=_api_call, args=(user_text,), daemon=True).start()
 
                 # 3) 检查 API 返回
                 with api_lock:
@@ -303,25 +315,28 @@ def main():
                             rest = lines[1] if len(lines) > 1 else ""
 
                             if not is_confirmed:
-                                # 只是显示内容，用正常渐进显示
-                                if rest.strip():
-                                    segments = split_segments(parse_response(rest))
-                                    if segments:
-                                        progressive_segments = segments
-                                        progressive_events = [threading.Event() for _ in segments]
-                                        progressive_events[0].set()
-                                        progressive_name = name
-                                        progressive_lang = current_lang['display']
-                                        def _on_before(idx):
-                                            if idx < len(progressive_events):
-                                                progressive_events[idx].set()
-                                        threading.Thread(
-                                            target=tts.speak_segments,
-                                            args=(segments, _on_before),
-                                            daemon=True
-                                        ).start()
-                                conv.history = [m for m in conv.history
-                                                if not m["content"].startswith("LANG_SWITCH:")]
+                                # 用固定话术，不用 AI 生成的内容
+                                target_name = current_lang.get("names", {}).get(target_key, target_key)
+                                confirm_text = current_lang["confirm_switch"].format(lang=target_name)
+                                confirm_cn = current_lang.get("confirm_switch_cn", "").format(
+                                    lang=cfg.LANG_NAMES_CN.get(target_key, target_key))
+                                segments = split_segments(parse_response(
+                                    confirm_text + "\n---\n" + confirm_cn))
+                                if segments:
+                                    speaking = True
+                                    progressive_segments = segments
+                                    progressive_events = [threading.Event() for _ in segments]
+                                    progressive_events[0].set()
+                                    progressive_name = name
+                                    progressive_lang = current_lang['display']
+                                    def _on_before(idx):
+                                        if idx < len(progressive_events):
+                                            progressive_events[idx].set()
+                                    threading.Thread(
+                                        target=tts.speak_segments,
+                                        args=(segments, _on_before),
+                                        daemon=True
+                                    ).start()
                                 continue
 
                             # confirmed: 执行切换 + 渐进显示
@@ -335,6 +350,7 @@ def main():
                             if rest.strip():
                                 switch_seg = split_segments(parse_response(rest))
                                 if switch_seg:
+                                    speaking = True
                                     progressive_segments = switch_seg
                                     progressive_events = [threading.Event() for _ in switch_seg]
                                     progressive_events[0].set()
@@ -348,8 +364,11 @@ def main():
                                         args=(switch_seg, _on_before_sw),
                                         daemon=True
                                     ).start()
-                            conv.history = [m for m in conv.history
-                                            if not m["content"].startswith("LANG_SWITCH:")]
+                                    has_any_cn = any(cn for _, cn in switch_seg)
+                                    if not has_any_cn:
+                                        display_items.append(
+                                            Panel("[yellow]提示: AI 回复缺少中文翻译，已自动调整[/yellow]",
+                                                  border_style="dim", padding=(0, 1)))
                             continue
 
                         if reply.startswith("ERROR:"):
@@ -360,30 +379,32 @@ def main():
                             continue
 
                         segments = split_segments(parse_response(reply))
-                        if segments:
-                            progressive_segments = segments
-                            progressive_events = [threading.Event() for _ in segments]
-                            progressive_events[0].set()  # 第一段立即显示
-                            progressive_name = name
-                            progressive_lang = current_lang['display']
-                            # 逐段播放：播前设置对应 Event
-                            def _on_before(idx):
-                                if idx < len(progressive_events):
-                                    progressive_events[idx].set()
-                            threading.Thread(
-                                target=tts.speak_segments,
-                                args=(segments, _on_before),
-                                daemon=True
-                            ).start()
-                            if _script_mismatch(segments[0][0], current_lang_key):
-                                display_items.append(
-                                    Panel("[yellow]提示: AI 用了其他语言回复[/yellow]",
-                                          border_style="dim", padding=(0, 1)))
-                            has_any_cn = any(cn for _, cn in segments)
-                            if not has_any_cn:
-                                display_items.append(
-                                    Panel("[yellow]提示: AI 回复缺少中文翻译，已自动调整[/yellow]",
-                                          border_style="dim", padding=(0, 1)))
+                        if not segments:
+                            continue
+                        speaking = True
+                        progressive_segments = segments
+                        progressive_events = [threading.Event() for _ in segments]
+                        progressive_events[0].set()  # 第一段立即显示
+                        progressive_name = name
+                        progressive_lang = current_lang['display']
+                        # 逐段播放：播前设置对应 Event
+                        def _on_before(idx):
+                            if idx < len(progressive_events):
+                                progressive_events[idx].set()
+                        threading.Thread(
+                            target=tts.speak_segments,
+                            args=(segments, _on_before),
+                            daemon=True
+                        ).start()
+                        if _script_mismatch(segments[0][0], current_lang_key):
+                            display_items.append(
+                                Panel("[yellow]提示: AI 用了其他语言回复[/yellow]",
+                                      border_style="dim", padding=(0, 1)))
+                        has_any_cn = any(cn for _, cn in segments)
+                        if not has_any_cn:
+                            display_items.append(
+                                Panel("[yellow]提示: AI 回复缺少中文翻译，已自动调整[/yellow]",
+                                      border_style="dim", padding=(0, 1)))
 
                 # 4) 处理渐进式显示（Event 驱动）
                 if progressive_segments is not None:
@@ -406,19 +427,24 @@ def main():
                         display_items.extend(_build_ai_panels(
                             progressive_segments, progressive_name, progressive_lang))
                         progressive_segments = None
+                        speaking = False
 
                 # 5) 构建完整渲染
                 # 限制显示面板数量，确保输入框始终可见
                 MAX_ITEMS = 10
                 items = list(display_items[-MAX_ITEMS:]) if len(display_items) > MAX_ITEMS else list(display_items)
-                if pending_api:
-                    items.append(Panel(
-                        "[cyan]Alice thinking...[/cyan]",
-                        border_style="dim", padding=(0, 1),
-                    ))
                 if progressive_segments is not None:
                     items.extend(progressive_items)
                 buffer, cursor = input_eng.buffer, input_eng.cursor
+                # 状态栏（在输入框上方）
+                if pending_api:
+                    items.append(Panel("Alice thinking...",
+                                      border_style="dim", padding=(0, 1)))
+                elif speaking and progressive_segments is not None and progressive_events:
+                    r = sum(1 for e in progressive_events if e.is_set())
+                    t = len(progressive_segments)
+                    items.append(Panel(f"Alice speaking... [{r}/{t}]",
+                                      border_style="dim", padding=(0, 1)))
                 items.append(_build_input_panel(buffer, cursor))
 
                 live.update(Group(*items))

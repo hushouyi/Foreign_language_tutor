@@ -9,7 +9,7 @@ AI 语言助教 - 配置文件
 # ║                      DeepSeek API                           ║
 # ╚══════════════════════════════════════════════════════════════╝
 
-DEEPSEEK_API_KEY = "sk"
+DEEPSEEK_API_KEY = "sk-your-api-key-here"
 DEEPSEEK_API_URL = "https://api.deepseek.com/v1/chat/completions"
 DEEPSEEK_MODEL = "deepseek-v4-flash"
 
@@ -23,6 +23,7 @@ LLM_ENGINE = "deepseek"
 TEMPERATURE = 0.7
 MAX_TOKENS = 600
 MAX_HISTORY_ROUNDS = 20
+API_TIMEOUT = 30
 
 
 # ╔══════════════════════════════════════════════════════════════╗
@@ -42,6 +43,12 @@ ASR_ENGINE = "keyboard"
 # ╔══════════════════════════════════════════════════════════════╗
 # ║                    人物设定 (Character)                      ║
 # ╚══════════════════════════════════════════════════════════════╝
+
+# 语种中文名映射（固定确认话术用）
+LANG_NAMES_CN = {
+    "english": "英语", "japanese": "日语",
+    "french": "法语", "spanish": "西班牙语",
+}
 
 CHARACTER_NAME = "Alice"
 
@@ -124,6 +131,7 @@ LANGUAGE_CONFIGS = {
             "french": "French", "spanish": "Spanish",
         },
         "confirm_switch": "Do you want to switch to {lang}? Just say yes or no.",
+        "confirm_switch_cn": "你想切换到{lang}吗？说 yes 或 no。",
         "prompt": CHARACTER_PROMPT + (
             "【英语规则】\n"
             "1. 用英语回复，使用缩略语（gonna, wanna, gotta）\n"
@@ -139,6 +147,7 @@ LANGUAGE_CONFIGS = {
             "french": "フランス語", "spanish": "スペイン語",
         },
         "confirm_switch": "{lang}に切り替えますか？「はい」か「いいえ」で答えてください。",
+        "confirm_switch_cn": "你想切换到{lang}吗？说「是」或「不是」。",
         "prompt": CHARACTER_PROMPT + (
             "【日本語ルール】\n"
             "1. 日本語で返事。です・ます調を使って\n"
@@ -154,6 +163,7 @@ LANGUAGE_CONFIGS = {
             "french": "Français", "spanish": "Espagnol",
         },
         "confirm_switch": "Voulez-vous passer à {lang} ? Dites oui ou non.",
+        "confirm_switch_cn": "你想切换到{lang}吗？说 oui 或 non。",
         "prompt": CHARACTER_PROMPT + (
             "【法语规则】\n"
             "1. 用法语回复，自然简短\n"
@@ -169,6 +179,7 @@ LANGUAGE_CONFIGS = {
             "french": "Francés", "spanish": "Español",
         },
         "confirm_switch": "¿Quieres cambiar a {lang}? Di sí o no.",
+        "confirm_switch_cn": "你想切换到{lang}吗？说 sí 或 no。",
         "prompt": CHARACTER_PROMPT + (
             "【西班牙语规则】\n"
             "1. 用西班牙语回复，自然简短\n"

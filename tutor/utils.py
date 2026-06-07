@@ -67,6 +67,8 @@ def _parse_standard(text: str):
 
 def split_segments(segments):
     """AI 只返回一段且长度 >80 时按句子拆分，确保渐进效果"""
+    if not segments:
+        return []
     if len(segments) >= 2:
         return segments  # 已有足够分段
     content, chinese = segments[0]

@@ -15,10 +15,11 @@ class LLMProvider(abc.ABC):
 
 
 class DeepSeekProvider(LLMProvider):
-    def __init__(self, api_key: str, api_url: str, model: str):
+    def __init__(self, api_key: str, api_url: str, model: str, timeout: int = 30):
         self.api_key = api_key
         self.api_url = api_url
         self.model = model
+        self.timeout = timeout
 
     def chat(self, history: list, temperature: float = 0.7, max_tokens: int = 300) -> str:
         headers = {
@@ -31,16 +32,10 @@ class DeepSeekProvider(LLMProvider):
             "temperature": temperature,
             "max_tokens": max_tokens,
         }
-        try:
-            resp = requests.post(self.api_url, headers=headers, json=payload, timeout=30)
-            resp.raise_for_status()
-            return resp.json()["choices"][0]["message"]["content"]
-        except requests.exceptions.RequestException as e:
-            print(f"\n[错误] 网络错误: {e}")
-            return "Sorry, I'm having trouble connecting. Please check your internet and try again."
-        except (KeyError, IndexError, json.JSONDecodeError) as e:
-            print(f"\n[错误] API 响应解析错误: {e}")
-            return "Sorry, something went wrong. Please try again."
+        resp = requests.post(self.api_url, headers=headers,
+                             json=payload, timeout=self.timeout)
+        resp.raise_for_status()
+        return resp.json()["choices"][0]["message"]["content"]
 
 
 def create_llm_provider(config: dict) -> LLMProvider:
@@ -50,6 +45,7 @@ def create_llm_provider(config: dict) -> LLMProvider:
             api_key=config["DEEPSEEK_API_KEY"],
             api_url=config["DEEPSEEK_API_URL"],
             model=config["DEEPSEEK_MODEL"],
+            timeout=config.get("API_TIMEOUT", 30),
         )
     else:
         raise ValueError(f"未知 LLM_ENGINE: {engine}")
