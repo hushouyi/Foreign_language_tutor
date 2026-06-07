@@ -9,7 +9,7 @@ AI 语言助教 - 配置文件
 # ║                      DeepSeek API                           ║
 # ╚══════════════════════════════════════════════════════════════╝
 
-DEEPSEEK_API_KEY = "sk-your-api-key-here"
+DEEPSEEK_API_KEY = "sk"
 DEEPSEEK_API_URL = "https://api.deepseek.com/v1/chat/completions"
 DEEPSEEK_MODEL = "deepseek-v4-flash"
 

@@ -28,9 +28,11 @@ class EdgeTTSProvider(TTSProvider):
         self.voice = voice
         self._process = None
         self._proc_lock = threading.Lock()
+        self._cancelled = False
 
     def cancel(self):
         """取消当前正在播放的语音"""
+        self._cancelled = True
         with self._proc_lock:
             if self._process and self._process.poll() is None:
                 try:
@@ -45,7 +47,7 @@ class EdgeTTSProvider(TTSProvider):
         self.voice = voice
 
     def _generate_wav(self, text: str):
-        """生成音频，返回 mp3_path, wav_path"""
+        """生成音频，返回 (mp3_path, wav_path)"""
         import miniaudio
         import wave as wave_mod
 
@@ -98,6 +100,57 @@ class EdgeTTSProvider(TTSProvider):
                     os.unlink(p)
                 except Exception:
                     pass
+
+    def speak_segments(self, segments: list, on_before=None):
+        """逐段生成+播放，播前回调。后台预生成下一段确保连续性。"""
+        import queue as _queue
+        import threading as _threading
+
+        self._cancelled = False
+
+        # 生成第一段
+        mp3_path, wav_path = self._generate_wav(segments[0][0])
+        try:
+            os.unlink(mp3_path)
+        except Exception:
+            pass
+
+        for idx in range(len(segments)):
+            if self._cancelled:
+                break
+
+            # 后台预生成下一段
+            next_queue = None
+            if idx + 1 < len(segments):
+                next_queue = _queue.Queue()
+                def _gen(i, q):
+                    mp3, wav = self._generate_wav(segments[i + 1][0])
+                    try:
+                        os.unlink(mp3)
+                    except Exception:
+                        pass
+                    q.put(wav)
+                _threading.Thread(target=_gen, args=(idx, next_queue), daemon=True).start()
+
+            # 播前回调
+            if on_before:
+                on_before(idx)
+
+            # 播放当前段
+            proc = self._play_wav(wav_path)
+            proc.wait()
+
+            # 清理当前文件
+            try:
+                os.unlink(wav_path)
+            except Exception:
+                pass
+
+            # 获取下一段音频（等待后台生成完成）
+            if next_queue:
+                wav_path = next_queue.get()
+            else:
+                wav_path = None
 
     def speak_async(self, text: str):
         """非阻塞朗读。返回一个 wait() 函数，调用后等待播完并清理。"""

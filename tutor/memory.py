@@ -68,6 +68,12 @@ class MemoryManager:
             f"You first met this user on: {first_seen}. "
             f"This is session #{session_count}. "
             f"Relationship: the more you chat, the closer and warmer you become.",
+            "",
+            "【格式提醒 - 每次回复必须遵守】",
+            "你必须把回复分成小段，每段1-2句话。",
+            "每段格式：外语内容（换行）---（换行）中文翻译",
+            "段与段之间用空行隔开。",
+            "每一段都必须有中文翻译！决不能只有外语没有中文。",
         ]
         if parts:
             lines.append("Facts you remember:")
