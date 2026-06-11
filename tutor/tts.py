@@ -75,20 +75,19 @@ class EdgeTTSProvider(TTSProvider):
         return asyncio.run(_gen())
 
     @staticmethod
-    def _trim_silence(samples, threshold=30):
-        """裁剪首尾静音，返回裁剪后的 array.array"""
+    def _trim_silence(samples, threshold=8):
+        """裁剪尾部静音，保留前部完整声音（不裁开头以免切掉微弱起音）。
+        """
+        # 前部：完全不裁剪，保留边缘音频的自然过渡
         start = 0
-        for i in range(len(samples)):
-            if abs(samples[i]) > threshold:
-                start = i
-                break
+        # 尾部：从后往前找最后一个高于 threshold 的样本
         end = len(samples)
         for i in range(len(samples) - 1, -1, -1):
             if abs(samples[i]) > threshold:
                 end = i + 1
                 break
-        if start > 0 or end < len(samples):
-            return samples[start:end]
+        if end < len(samples):
+            return samples[:end]
         return samples
 
     def _generate_clean_pcm(self, text: str):
@@ -101,7 +100,19 @@ class EdgeTTSProvider(TTSProvider):
         mp3_path = self._generate_mp3(text)
         try:
             decoded = miniaudio.mp3_read_file_s16(mp3_path)
-            samples = self._trim_silence(decoded.samples, threshold=30)
+            raw_len = len(decoded.samples)
+            samples = self._trim_silence(decoded.samples, threshold=8)
+            trimmed_len = len(samples)
+            dur_raw = raw_len / (decoded.sample_rate * decoded.nchannels)
+            dur_trimmed = trimmed_len / (decoded.sample_rate * decoded.nchannels)
+            diff_ms = (dur_raw - dur_trimmed) * 1000
+            # 分析被裁掉的样本
+            first10 = decoded.samples[:10].tolist() if raw_len >= 10 else []
+            last10 = decoded.samples[-10:].tolist() if raw_len >= 10 else []
+            print(f"[TTS] '{text}'")
+            print(f"[TTS]   raw={raw_len}samples({dur_raw:.2f}s) trimmed={trimmed_len}samples({dur_trimmed:.2f}s) cut={diff_ms:.0f}ms")
+            print(f"[TTS]   first10={first10}  last10={last10}")
+            print(f"[TTS]   trimmed_first10={samples[:10].tolist() if trimmed_len >= 10 else []}  trimmed_last10={samples[-10:].tolist() if trimmed_len >= 10 else []}")
             return samples, decoded.nchannels, decoded.sample_rate
         finally:
             try:

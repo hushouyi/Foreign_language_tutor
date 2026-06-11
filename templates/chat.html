@@ -139,6 +139,36 @@ html, body { height: 100%; overflow: hidden; font-family: -apple-system, "PingFa
 #send-btn:hover { background: #06ad56; }
 #send-btn:disabled { background: #ccc; cursor: not-allowed; }
 
+/* ── 麦克风按钮 ────────────────────────────── */
+#mic-btn {
+  flex-shrink: 0; width: 36px; height: 36px;
+  border: none; border-radius: 50%; cursor: pointer;
+  font-size: 18px; display: flex; align-items: center; justify-content: center;
+  background: transparent; transition: all .2s; outline: none;
+}
+#mic-btn:hover:not(.mic-disabled) { background: rgba(7,193,96,.1); }
+
+.mic-idle { color: #999; }
+.mic-listening {
+  color: #07c160; background: rgba(7,193,96,.08);
+  animation: micPulse 1.5s ease-in-out infinite;
+}
+.mic-processing {
+  color: #999;
+  animation: micSpin 0.8s linear infinite;
+}
+.mic-disabled { opacity: 0.3; cursor: not-allowed; }
+
+@keyframes micPulse {
+  0% { box-shadow: 0 0 0 0 rgba(7,193,96,.4); }
+  70% { box-shadow: 0 0 0 12px rgba(7,193,96,0); }
+  100% { box-shadow: 0 0 0 0 rgba(7,193,96,0); }
+}
+@keyframes micSpin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
 /* ── 警告横幅 ──────────────────────────────── */
 #warning-toast {
   position: fixed; top: 64px; left: 50%; transform: translateX(-50%);
@@ -164,6 +194,7 @@ html, body { height: 100%; overflow: hidden; font-family: -apple-system, "PingFa
 
   <div id="input-area">
     <div id="input-row">
+      <button id="mic-btn" class="mic mic-idle" title="语音输入">🎤</button>
       <input type="text" id="input-text" placeholder="输入消息..." autofocus>
       <button id="send-btn" disabled>发送</button>
     </div>
@@ -190,7 +221,7 @@ const inputText = document.getElementById('input-text');
 const sendBtn = document.getElementById('send-btn');
 const header = document.getElementById('header');
 const warningToast = document.getElementById('warning-toast');
-
+const micBtn = document.getElementById('mic-btn');
 // ── 工具 ────────────────────────────────────
 function scrollBottom() {
   requestAnimationFrame(() => { messagesEl.scrollTop = messagesEl.scrollHeight; });
@@ -403,6 +434,7 @@ async function chatStream(userText) {
   state.isProcessing = true;
   sendBtn.disabled = true;
   inputText.disabled = true;
+  micBtn.classList.add("mic-disabled");
 
   // 清空上一轮未 reveal 完的段，取消旧 reveal 链
   pendingSegments.length = 0;
@@ -427,6 +459,7 @@ async function chatStream(userText) {
       state.isProcessing = false;
       sendBtn.disabled = false;
       inputText.disabled = false;
+      micBtn.classList.remove("mic-disabled");
       inputText.focus();
       return;
     }
@@ -571,6 +604,310 @@ async function revealNextResponseSegment() {
   revealNextResponseSegment();
 }
 
+// ════════════════════════════════════════════════
+// 语音识别 (Web Speech API)
+// ════════════════════════════════════════════════
+
+const STT_LANG_MAP = {
+  english: "en-US",
+  japanese: "ja-JP",
+  french: "fr-FR",
+  spanish: "es-ES",
+  korean: "ko-KR",
+  german: "de-DE",
+  russian: "ru-RU",
+  chinese: "zh-CN",
+  italian: "it-IT",
+  portuguese: "pt-BR",
+  arabic: "ar-SA",
+};
+
+/** 当前语音识别状态 */
+let recognition = null;
+let isListening = false;       // 用户意图：正在聆听
+let userStopped = false;       // 用户主动点击停止
+let speechDetected = false;    // 是否检测到了人声
+let resultReceived = false;   // 是否收到了识别结果
+let recogLang = "en-US";
+
+function getSTTLang(langKey) {
+  return STT_LANG_MAP[langKey] || "en-US";
+}
+
+function toggleMic() {
+  if (isListening) {
+    stopListening();
+  } else {
+    startListening();
+  }
+}
+
+// ── 麦克风设备枚举 + 选择 ────────────────────
+let selectedMicId = null;  // null = 默认设备
+
+navigator.mediaDevices.enumerateDevices()
+  .then(devices => {
+    const mics = devices.filter(d => d.kind === "audioinput");
+    console.log("[mic] available mics:", mics.map(m => m.label || m.deviceId.slice(0,20)+"..."));
+    if (mics.length > 0) {
+      setStatus("🎤 " + mics.length + " 个麦克风可用");
+      setTimeout(() => setStatus(""), 2000);
+    }
+  })
+  .catch(e => console.log("[mic] enumerate error:", e));
+
+// ── 音频电平表（麦克风可视化） ─────────────────
+let micStream = null;
+let audioCtxMeter = null;
+let meterInterval = null;
+
+function startMeter(stream) {
+  micStream = stream;
+  try {
+    audioCtxMeter = new (window.AudioContext || window.webkitAudioContext)();
+    const src = audioCtxMeter.createMediaStreamSource(stream);
+    const analyser = audioCtxMeter.createAnalyser();
+    analyser.fftSize = 256;
+    src.connect(analyser);
+    const data = new Uint8Array(analyser.frequencyBinCount);
+    meterInterval = setInterval(() => {
+      analyser.getByteTimeDomainData(data);
+      let max = 0;
+      for (let i = 0; i < data.length; i++) {
+        const v = Math.abs(data[i] - 128);
+        if (v > max) max = v;
+      }
+      const pct = Math.min(100, (max / 128) * 100);
+      if (pct > 3) {
+        micBtn.style.boxShadow = "0 0 " + (6 + pct/3) + "px rgba(7,193,96," + (0.3 + pct/150) + ")";
+        micBtn.style.background = "rgba(7,193,96," + Math.min(0.3, pct/300) + ")";
+      } else {
+        micBtn.style.boxShadow = "none";
+        micBtn.style.background = "transparent";
+      }
+    }, 50);
+  } catch(e) { console.log("[mic] meter error:", e); }
+}
+
+function stopMeter() {
+  if (meterInterval) { clearInterval(meterInterval); meterInterval = null; }
+  if (micStream) { micStream.getTracks().forEach(t => t.stop()); micStream = null; }
+  if (audioCtxMeter) { try { audioCtxMeter.close(); } catch(e) {} audioCtxMeter = null; }
+  micBtn.style.boxShadow = "none";
+  micBtn.style.background = "transparent";
+}
+
+// ── 语音识别 ──────────────────────────────────
+
+/** 一段"无结果"超时后弹出提示（防止识别被卡住） */
+let stuckTimer = null;
+
+function startListening() {
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SpeechRecognition) {
+    showWarning("浏览器不支持语音识别，请使用 Chrome 或 Edge");
+    return;
+  }
+  if (state.isProcessing) {
+    console.log("[mic] start rejected: processing");
+    return;
+  }
+
+  console.log("[mic] ======== startListening ========");
+  console.log("[mic] selectedMicId:", selectedMicId);
+  speechDetected = false;
+  resultReceived = false;
+  recogLang = getSTTLang(state.langKey);
+  console.log("[mic] recognition.lang=" + recogLang);
+
+  // 打开麦克风（用于电平表 + 确认设备可用）
+  navigator.mediaDevices.getUserMedia({
+    audio: selectedMicId ? { deviceId: { exact: selectedMicId } } : true
+  })
+    .then((stream) => {
+      console.log("[mic] getUserMedia OK");
+      const track = stream.getAudioTracks()[0];
+      console.log("[mic] using device:", track.label);
+      console.log("[mic] device settings:", JSON.stringify(track.getSettings ? track.getSettings() : {}));
+      setStatus("🎤 " + track.label);
+      setTimeout(() => setStatus(""), 2000);
+      startMeter(stream);
+
+      // ── 创建 SpeechRecognition ──
+      recognition = new SpeechRecognition();
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      recognition.lang = recogLang;
+
+      // ---- 全部事件处理 ----
+
+      recognition.onaudiostart = () => console.log("[mic] EVENT: audiostart");
+      recognition.onaudioend   = () => console.log("[mic] EVENT: audioend");
+      recognition.onsoundstart = () => {
+        speechDetected = true;
+        console.log("[mic] EVENT: soundstart ← 麦克风检测到了声音");
+      };
+      recognition.onsoundend   = () => console.log("[mic] EVENT: soundend");
+      recognition.onspeechstart = () => console.log("[mic] EVENT: speechstart ← 识别到语音");
+      recognition.onspeechend  = () => console.log("[mic] EVENT: speechend");
+
+      recognition.onnomatch = (event) => {
+        console.log("[mic] EVENT: nomatch — 听到了声音但无法匹配任何文字", event);
+      };
+
+      recognition.onresult = (event) => {
+        resultReceived = true;
+        let finalText = "";
+        let interimText = "";
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          const t = event.results[i][0].transcript;
+          const conf = event.results[i][0].confidence;
+          if (event.results[i].isFinal) {
+            finalText += t;
+            console.log("[mic] FINAL result:", JSON.stringify(t), "confidence:", conf);
+          } else {
+            interimText += t;
+            console.log("[mic] interim result:", JSON.stringify(t));
+          }
+        }
+        inputText.value = finalText + (interimText ? " " + interimText : "");
+        inputText.dispatchEvent(new Event("input"));
+        console.log("[mic] onresult → inputText.value=", JSON.stringify(inputText.value));
+      };
+
+      recognition.onerror = (event) => {
+        console.log("[mic] EVENT: onerror —", event.error, event.message || "");
+        if (event.error === "not-allowed") {
+          showWarning("麦克风权限被拒绝");
+          _micCleanup();
+        } else if (event.error === "no-speech") {
+          showWarning("没有检测到语音");
+          _micCleanup();
+        } else if (event.error === "aborted") {
+          // 用户主动停止，不报错
+          console.log("[mic]   (aborted by user)");
+        } else {
+          showWarning("语音识别错误: " + event.error);
+          _micCleanup();
+        }
+      };
+
+      recognition.onend = () => {
+        console.log("[mic] EVENT: onend — isListening=" + isListening + " text='" + inputText.value.trim() + "'");
+        // 如果是用户主动停止，onend 的处理交给 stopListening() 的下一步
+        // 只有当 isListening 仍然为 true 时（异常断线/自然结束），才尝试重启或清理
+        if (isListening) {
+          // 自然结束或异常断线
+          if (resultReceived) {
+            const t = inputText.value.trim();
+            if (t) {
+              isListening = false;
+              _micCleanup();
+              sendMessage();
+            } else {
+              // 有结果但为空，继续监听
+              console.log("[mic] onend: restarting (empty result)");
+              try { recognition.start(); } catch(e) { _micCleanup(); }
+            }
+          } else {
+            // 从未收到任何结果 — 可能识别服务连接失败
+            console.log("[mic] onend: no result ever received, stopping");
+            isListening = false;
+            _micCleanup();
+            if (!speechDetected) {
+              showWarning("没有检测到语音，请检查麦克风");
+            } else {
+              showWarning("语音识别服务无响应，请检查网络或重试");
+            }
+          }
+        }
+      };
+
+      try {
+        recognition.start();
+        isListening = true;
+        micBtn.className = "mic mic-listening";
+        inputText.placeholder = "说点什么...";
+        setStatus("🎤 聆听中");
+        console.log("[mic] recognition.start() OK");
+
+        // 安全超时：如果 12 秒内没有任何结果（interim/final），提示用户
+        stuckTimer = setTimeout(() => {
+          if (isListening && !resultReceived) {
+            console.log("[mic] STUCK: 12s without any result");
+            if (speechDetected) {
+              showWarning("检测到声音但识别无结果，可能是网络问题或麦克风不兼容");
+            } else {
+              setStatus("🎤 没有检测到声音，请检查麦克风");
+            }
+          }
+        }, 12000);
+      } catch (e) {
+        console.log("[mic] recognition.start() ERROR:", e);
+        showWarning("启动语音识别失败: " + e.message);
+        _micCleanup();
+      }
+    })
+    .catch((err) => {
+      console.log("[mic] getUserMedia DENIED:", err.message);
+      showWarning("麦克风权限被拒绝，请在浏览器地址栏左侧点击🔒设置麦克风权限");
+    });
+}
+
+function stopListening() {
+  console.log("[mic] ======== stopListening ========");
+  console.log("[mic] current text='", inputText.value.trim(), "'");
+  console.log("[mic] speechDetected=" + speechDetected + " resultReceived=" + resultReceived);
+  isListening = false;
+
+  if (stuckTimer) { clearTimeout(stuckTimer); stuckTimer = null; }
+
+  if (recognition) {
+    // 先 stop() — 让 recognition 处理完待处理的音频，可能会最终触发 onresult
+    try {
+      console.log("[mic] calling recognition.stop()");
+      recognition.stop();
+      console.log("[mic] recognition.stop() returned");
+    } catch (e) {
+      console.log("[mic] stop() error:", e);
+      try { recognition.abort(); } catch (e2) {}
+    }
+    recognition = null;
+  }
+
+  const text = inputText.value.trim();
+
+  if (resultReceived && text) {
+    _micCleanup();
+    sendMessage();
+  } else {
+    _micCleanup();
+    if (speechDetected && !resultReceived) {
+      showWarning("检测到声音但无法识别为文字，请检查网络或尝试 Edge 浏览器");
+    } else if (!speechDetected) {
+      showWarning("没有检测到语音");
+    } else {
+      showWarning("语音识别失败");
+    }
+  }
+}
+
+function _micCleanup() {
+  if (stuckTimer) { clearTimeout(stuckTimer); stuckTimer = null; }
+  stopMeter();
+  isListening = false;
+  if (recognition) {
+    try { recognition.abort(); } catch(e) {}
+    recognition = null;
+  }
+  micBtn.className = "mic mic-idle";
+  micBtn.style.boxShadow = "none";
+  micBtn.style.background = "transparent";
+  inputText.placeholder = "输入消息...";
+  setStatus("");
+  userStopped = false;
+}
+
 // ── 初始化 ─────────────────────────────────
 async function initApp() {
   try {
@@ -656,7 +993,7 @@ async function sendMessage() {
 
 // ── 事件绑定 ───────────────────────────────
 inputText.addEventListener('input', () => {
-  sendBtn.disabled = !inputText.value.trim() || state.isProcessing;
+  sendBtn.disabled = !inputText.value.trim() || state.isProcessing || isListening;
 });
 
 inputText.addEventListener('keydown', (e) => {
@@ -667,6 +1004,11 @@ inputText.addEventListener('keydown', (e) => {
 });
 
 sendBtn.addEventListener('click', sendMessage);
+
+micBtn.addEventListener('click', () => {
+  if (state.isProcessing) return;
+  toggleMic();
+});
 
 // ── 启动 ───────────────────────────────────
 initApp();
