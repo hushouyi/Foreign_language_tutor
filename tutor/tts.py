@@ -4,6 +4,7 @@ TTS 引擎 - 语音合成抽象与实现
 
 import abc
 import asyncio
+import io
 import os
 import subprocess
 import tempfile
@@ -45,6 +46,35 @@ class EdgeTTSProvider(TTSProvider):
     def set_voice(self, voice: str):
         """运行时切换语音"""
         self.voice = voice
+
+    def _generate_wav_bytes(self, text: str) -> bytes:
+        """生成音频，返回 WAV 字节（无临时文件）"""
+        import miniaudio
+        import wave as wave_mod
+
+        async def _gen():
+            import edge_tts as _edge_tts
+            communicate = _edge_tts.Communicate(text, self.voice)
+            tmp = tempfile.NamedTemporaryFile(suffix=".mp3", delete=False)
+            tmp.close()
+            await communicate.save(tmp.name)
+            return tmp.name
+
+        mp3_path = asyncio.run(_gen())
+        try:
+            decoded = miniaudio.decode_file(mp3_path, output_format=miniaudio.SampleFormat.SIGNED16)
+            buf = io.BytesIO()
+            with wave_mod.open(buf, "wb") as wf:
+                wf.setnchannels(decoded.nchannels)
+                wf.setsampwidth(2)
+                wf.setframerate(decoded.sample_rate)
+                wf.writeframes(decoded.samples.tobytes())
+            return buf.getvalue()
+        finally:
+            try:
+                os.unlink(mp3_path)
+            except Exception:
+                pass
 
     def _generate_wav(self, text: str):
         """生成音频，返回 (mp3_path, wav_path)"""

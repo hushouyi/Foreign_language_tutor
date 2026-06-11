@@ -142,14 +142,38 @@ def _build_input_panel(buffer: str, cursor: int):
     )
 
 
+# ── 工具: TTS 后台播放（追踪完成状态，让"speaking..."状态栏正确显示）──
+
+def _start_tts(tts_provider, segments, on_before, done_event):
+    """在后台线程播 TTS，播完后设置 done_event"""
+    def _run():
+        try:
+            tts_provider.speak_segments(segments, on_before)
+        except Exception:
+            pass
+        finally:
+            done_event.set()
+    done_event.clear()
+    threading.Thread(target=_run, daemon=True).start()
+
+
 # ── 主流程 ──────────────────────────────────────────
 
 def main():
     parser = argparse.ArgumentParser(description="AI 语言助教")
     parser.add_argument("--lang", default=cfg.LANGUAGE,
                         help=f"语种: {', '.join(cfg.LANGUAGE_CONFIGS.keys())} (默认: {cfg.LANGUAGE})")
-    args = parser.parse_args()
+    parser.add_argument("--cli", action="store_true",
+                        help="使用 CLI 模式（默认启动 Web 界面）")
+    args, _ = parser.parse_known_args()
 
+    # 默认：启动 Web 服务器
+    if not args.cli:
+        from web_server import run_web_server
+        run_web_server()
+        return
+
+    # ── CLI 模式（原有逻辑） ──
     current_lang_key, current_lang = resolve_lang(args.lang)
     name = cfg.CHARACTER_NAME
 
@@ -198,6 +222,8 @@ def main():
     api_lock = threading.Lock()
     pending_question = None  # 用户在等待时发的新消息（覆盖旧请求）
     speaking = False         # AI 正在朗读中
+    tts_done = threading.Event()
+    tts_done.set()           # 初始状态：空闲（没有 TTS 在播放）
 
     # 渐进式显示
     progressive_segments = None   # 当前正在逐段显示的段落
@@ -216,11 +242,7 @@ def main():
         def _on_before_welcome(idx):
             if idx < len(progressive_events):
                 progressive_events[idx].set()
-        threading.Thread(
-            target=tts.speak_segments,
-            args=(welcome_segments, _on_before_welcome),
-            daemon=True
-        ).start()
+        _start_tts(tts, welcome_segments, _on_before_welcome, tts_done)
 
     input_eng = InputEngine()
     running = True
@@ -332,11 +354,7 @@ def main():
                                     def _on_before(idx):
                                         if idx < len(progressive_events):
                                             progressive_events[idx].set()
-                                    threading.Thread(
-                                        target=tts.speak_segments,
-                                        args=(segments, _on_before),
-                                        daemon=True
-                                    ).start()
+                                    _start_tts(tts, segments, _on_before, tts_done)
                                 continue
 
                             # confirmed: 执行切换 + 渐进显示
@@ -359,11 +377,7 @@ def main():
                                     def _on_before_sw(idx):
                                         if idx < len(progressive_events):
                                             progressive_events[idx].set()
-                                    threading.Thread(
-                                        target=tts.speak_segments,
-                                        args=(switch_seg, _on_before_sw),
-                                        daemon=True
-                                    ).start()
+                                    _start_tts(tts, switch_seg, _on_before_sw, tts_done)
                                     has_any_cn = any(cn for _, cn in switch_seg)
                                     if not has_any_cn:
                                         display_items.append(
@@ -391,11 +405,7 @@ def main():
                         def _on_before(idx):
                             if idx < len(progressive_events):
                                 progressive_events[idx].set()
-                        threading.Thread(
-                            target=tts.speak_segments,
-                            args=(segments, _on_before),
-                            daemon=True
-                        ).start()
+                        _start_tts(tts, segments, _on_before, tts_done)
                         if _script_mismatch(segments[0][0], current_lang_key):
                             display_items.append(
                                 Panel("[yellow]提示: AI 用了其他语言回复[/yellow]",
@@ -427,7 +437,7 @@ def main():
                         display_items.extend(_build_ai_panels(
                             progressive_segments, progressive_name, progressive_lang))
                         progressive_segments = None
-                        speaking = False
+                        progressive_events = None
 
                 # 5) 构建完整渲染
                 # 限制显示面板数量，确保输入框始终可见
@@ -440,8 +450,8 @@ def main():
                 if pending_api:
                     items.append(Panel("Alice thinking...",
                                       border_style="dim", padding=(0, 1)))
-                elif speaking and progressive_segments is not None and progressive_events:
-                    r = sum(1 for e in progressive_events if e.is_set())
+                elif not tts_done.is_set() and progressive_segments is not None:
+                    r = sum(1 for e in progressive_events if e.is_set()) if progressive_events else 0
                     t = len(progressive_segments)
                     items.append(Panel(f"Alice speaking... [{r}/{t}]",
                                       border_style="dim", padding=(0, 1)))
