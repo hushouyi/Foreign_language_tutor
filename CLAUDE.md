@@ -23,6 +23,11 @@ rm memory/user_profile.json             # clear cross-session AI memory
 
 No tests, linters, or formatters are configured.
 
+## Workflow rules
+
+- **每次 push 前先升版本号**: 修改 `README.md` 第一行的版本号（如 v16 → v17），作为该次 commit 的一部分。
+- **push 前检查文档同步**: 确认 README.md、CLAUDE.md、memory 文件都已更新。
+
 ## Project structure
 
 ```
@@ -80,12 +85,13 @@ No tests, linters, or formatters are configured.
 
 ### `tutor/tts.py` — TTS abstraction
 - `TTSProvider.speak(text) → bool`, `speak_segments(segments, on_before)`, `cancel()`
-- `EdgeTTSProvider`: edge-tts → miniaudio decode to WAV → PowerShell SoundPlayer (CLI) or browser `<audio>` (Web). Key patterns:
-  - **`speak_segments()`**: pre-generates next segment WAV in background thread for gapless playback. `on_before(idx)` callback fires before each segment plays → drives progressive UI reveal.
-  - **`cancel()`**: kills SoundPlayer process under `_proc_lock`.
-  - **`set_voice(voice)`**: runtime voice switching for language changes.
+- `EdgeTTSProvider`: edge-tts → `mp3_read_file_s16` → `_trim_silence()` → `PlaybackDevice` (CLI) or `_generate_wav_bytes()` (web). Key patterns:
+  - **Pipeline**: edge-tts MP3 → `mp3_read_file_s16()` decodes to native 1ch 24000Hz PCM → `_trim_silence(threshold=30)` removes ~197ms MP3 encoder silence → `PlaybackDevice.start()` via `stream_raw_pcm_memory` generator.
+  - **`cancel()`**: sets `_cancelled` flag → `_play_pcm()` polling loop breaks → `device.stop()`. Response ~0.4s.
+  - **`speak_segments()`**: background thread pre-generates next segment PCM. `on_before(idx)` drives progressive UI reveal.
+  - **`set_voice(voice)`**: runtime voice switching.
   - **`speak_async()`**: non-blocking variant returning `wait()` callable.
-  - **`_generate_wav_bytes(text) → bytes`**: returns WAV bytes (no temp files), used by web server.
+  - **`_generate_wav_bytes(text) → bytes`**: returns trimmed WAV (1ch 24000Hz, no lead silence) for browser playback.
 - `Pyttsx3Provider`: offline fallback, lower quality.
 - `create_tts_provider(config)` factory.
 
