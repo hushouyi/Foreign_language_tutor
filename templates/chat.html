@@ -178,12 +178,122 @@ html, body { height: 100%; overflow: hidden; font-family: -apple-system, "PingFa
 }
 #warning-toast.show { opacity: 1; }
 
+/* ── 侧边栏 ──────────────────────────────── */
+#sidebar-toggle {
+  position: fixed; left: 0; top: 50%; transform: translateY(-50%);
+  width: 28px; height: 64px; border: none; border-radius: 0 8px 8px 0;
+  background: #07c160; color: #fff; font-size: 14px; cursor: pointer;
+  z-index: 100; display: flex; align-items: center; justify-content: center;
+  transition: left .3s ease; box-shadow: 2px 0 6px rgba(0,0,0,.12);
+  padding: 0; line-height: 1;
+}
+#sidebar-toggle:hover { background: #06ad56; }
+#sidebar-toggle.open { left: 260px; }
+
+#sidebar-backdrop {
+  position: fixed; inset: 0; background: rgba(0,0,0,.3);
+  z-index: 98; opacity: 0; pointer-events: none; transition: opacity .3s;
+}
+#sidebar-backdrop.show { opacity: 1; pointer-events: auto; }
+
+#sidebar-panel {
+  position: fixed; left: 0; top: 0; bottom: 0;
+  width: 260px; background: #fff; z-index: 99;
+  box-shadow: 2px 0 12px rgba(0,0,0,.15);
+  transform: translateX(-100%); transition: transform .3s ease;
+  display: flex; flex-direction: column;
+}
+#sidebar-panel.open { transform: translateX(0); }
+
+#sidebar-header {
+  flex-shrink: 0; height: 56px; display: flex; align-items: center;
+  justify-content: space-between; padding: 0 16px;
+  background: #07c160; color: #fff; font-size: 16px; font-weight: 600;
+}
+#sidebar-close {
+  background: none; border: none; color: #fff; font-size: 18px;
+  cursor: pointer; padding: 4px 8px; border-radius: 4px; line-height: 1;
+}
+#sidebar-close:hover { background: rgba(255,255,255,.2); }
+
+#sidebar-body {
+  flex: 1; overflow-y: auto; padding: 16px;
+}
+
+.sidebar-section { margin-bottom: 20px; }
+.sidebar-section:last-child { margin-bottom: 0; }
+
+.sidebar-section .section-label {
+  display: block; font-size: 11px; font-weight: 600; color: #999;
+  margin-bottom: 5px; text-transform: uppercase; letter-spacing: 0.5px;
+}
+
+.sidebar-section select {
+  width: 100%; padding: 8px 10px; border: 1px solid #ddd;
+  border-radius: 6px; font-size: 13px; font-family: inherit;
+  background: #fff; color: #333; outline: none; cursor: pointer;
+  appearance: auto;
+}
+.sidebar-section select:focus { border-color: #07c160; }
+.sidebar-section select option:disabled { color: #bbb; }
+
+.status-dot {
+  display: inline-block; width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0;
+}
+.status-dot.running { background: #4caf50; box-shadow: 0 0 4px rgba(76,175,80,.5); }
+.status-dot.stopped { background: #f44336; }
+.status-dot.unknown { background: #ccc; }
+
+.service-item {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 8px 0; border-bottom: 1px solid #f5f5f5; font-size: 13px;
+}
+.service-item:last-child { border-bottom: none; }
+.service-item .service-name { color: #333; font-weight: 500; }
+.service-item .service-models { font-size: 11px; color: #999; margin-top: 2px; }
+
 /* ── 滚动条 ────────────────────────────────── */
 #messages::-webkit-scrollbar { width: 4px; }
 #messages::-webkit-scrollbar-thumb { background: #ccc; border-radius: 2px; }
 </style>
 </head>
 <body>
+
+<!-- 侧边栏 -->
+<button id="sidebar-toggle">▶</button>
+<div id="sidebar-backdrop"></div>
+<div id="sidebar-panel">
+  <div id="sidebar-header">
+    <span>⚙ 设置</span>
+    <button id="sidebar-close">✕</button>
+  </div>
+  <div id="sidebar-body">
+    <div class="sidebar-section">
+      <span class="section-label">LLM 引擎</span>
+      <select id="cfg-llm"></select>
+    </div>
+    <div class="sidebar-section">
+      <span class="section-label">TTS 引擎</span>
+      <select id="cfg-tts">
+        <option value="edge-tts">Edge-TTS</option>
+      </select>
+    </div>
+    <div class="sidebar-section">
+      <span class="section-label">ASR 引擎</span>
+      <select id="cfg-asr">
+        <option value="keyboard">键盘输入</option>
+      </select>
+    </div>
+    <div class="sidebar-section">
+      <span class="section-label">联网搜索</span>
+      <select id="cfg-search"></select>
+    </div>
+    <div class="sidebar-section">
+      <span class="section-label">📊 服务状态</span>
+      <div id="service-list"></div>
+    </div>
+  </div>
+</div>
 
 <div id="app">
   <div id="header">Alice - AI 语言助教 [English]</div>
@@ -194,7 +304,7 @@ html, body { height: 100%; overflow: hidden; font-family: -apple-system, "PingFa
 
   <div id="input-area">
     <div id="input-row">
-      <button id="mic-btn" class="mic mic-idle" title="语音输入">🎤</button>
+      <button id="mic-btn" class="mic mic-idle" title="切换到语音模式">⌨️</button>
       <input type="text" id="input-text" placeholder="输入消息..." autofocus>
       <button id="send-btn" disabled>发送</button>
     </div>
@@ -210,6 +320,7 @@ const state = {
   langDisplay: 'English',
   characterName: 'Alice',
   isProcessing: false,
+  inputMode: 'keyboard',  // 'keyboard' | 'voice'
   welcomeAudioUrls: [],   // 欢迎词音频 URL 列表
   welcomePlayed: false,   // 欢迎词是否已播放过
 };
@@ -223,8 +334,16 @@ const header = document.getElementById('header');
 const warningToast = document.getElementById('warning-toast');
 const micBtn = document.getElementById('mic-btn');
 // ── 工具 ────────────────────────────────────
+function isNearBottom() {
+  return messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight < 60;
+}
+
 function scrollBottom() {
   requestAnimationFrame(() => { messagesEl.scrollTop = messagesEl.scrollHeight; });
+}
+
+function autoScrollIfNeeded() {
+  if (isNearBottom()) scrollBottom();
 }
 
 function escapeHtml(str) {
@@ -287,7 +406,7 @@ function addMessage(type, content, translation, audioUrl) {
   }
 
   messagesEl.appendChild(div);
-  scrollBottom();
+  autoScrollIfNeeded();
 
   // 关联音频（欢迎词：只显示按钮，不自动播放）
   if (type === 'ai' && audioUrl) {
@@ -307,7 +426,7 @@ function addSystemMessage(text) {
   bubble.textContent = text;
   div.appendChild(bubble);
   messagesEl.appendChild(div);
-  scrollBottom();
+  autoScrollIfNeeded();
 }
 
 function clearMessages() {
@@ -642,6 +761,41 @@ function toggleMic() {
   }
 }
 
+// ── 输入模式切换 (键盘/语音) ────────────────
+function toggleInputMode() {
+  state.inputMode = state.inputMode === 'keyboard' ? 'voice' : 'keyboard';
+  updateModeUI();
+  if (state.inputMode === 'voice') {
+    setStatus('🎤 语音模式 — 按空格键说话');
+    setTimeout(() => setStatus(''), 2500);
+  } else {
+    setStatus('');
+  }
+}
+
+function updateModeUI() {
+  if (state.inputMode === 'voice') {
+    micBtn.textContent = '🎤';
+    micBtn.className = 'mic mic-idle';
+    micBtn.title = '切换到键盘模式';
+    inputText.placeholder = '按 空格 键语音输入';
+  } else {
+    micBtn.textContent = '⌨️';
+    micBtn.className = 'mic mic-idle';
+    micBtn.title = '切换到语音模式';
+    inputText.placeholder = '输入消息...';
+  }
+}
+
+// 语音模式：空格键控制录音
+document.addEventListener('keydown', (e) => {
+  if (state.inputMode !== 'voice') return;
+  if (e.key !== ' ' && e.key !== 'Space') return;
+  if (e.repeat || state.isProcessing) return;
+  e.preventDefault();
+  toggleMic();
+});
+
 // ── 麦克风设备枚举 + 选择 ────────────────────
 let selectedMicId = null;  // null = 默认设备
 
@@ -756,21 +910,22 @@ function startListening() {
       };
 
       recognition.onresult = (event) => {
+        if (!isListening) return;  // 已停止，忽略延迟的剩余结果
         resultReceived = true;
-        let finalText = "";
-        let interimText = "";
-        for (let i = event.resultIndex; i < event.results.length; i++) {
-          const t = event.results[i][0].transcript;
-          const conf = event.results[i][0].confidence;
-          if (event.results[i].isFinal) {
-            finalText += t;
-            console.log("[mic] FINAL result:", JSON.stringify(t), "confidence:", conf);
+        let fullFinal = "";
+        let lastInterim = "";
+        for (let i = 0; i < event.results.length; i++) {
+          const r = event.results[i];
+          const t = r[0].transcript;
+          if (r.isFinal) {
+            fullFinal += t;
+            console.log("[mic] FINAL result:", JSON.stringify(t), "confidence:", r[0].confidence);
           } else {
-            interimText += t;
+            lastInterim = t;  // 只保留最新的 interim，避免重复
             console.log("[mic] interim result:", JSON.stringify(t));
           }
         }
-        inputText.value = finalText + (interimText ? " " + interimText : "");
+        inputText.value = fullFinal + (lastInterim ? " " + lastInterim : "");
         inputText.dispatchEvent(new Event("input"));
         console.log("[mic] onresult → inputText.value=", JSON.stringify(inputText.value));
       };
@@ -903,9 +1058,10 @@ function _micCleanup() {
   micBtn.className = "mic mic-idle";
   micBtn.style.boxShadow = "none";
   micBtn.style.background = "transparent";
-  inputText.placeholder = "输入消息...";
   setStatus("");
   userStopped = false;
+  // 恢复模式对应的 UI
+  updateModeUI();
 }
 
 // ── 初始化 ─────────────────────────────────
@@ -938,6 +1094,7 @@ async function initApp() {
     addSystemMessage('⚠️ 初始化失败: ' + e.message);
   }
 
+  updateModeUI();
   inputText.focus();
 }
 
@@ -1007,11 +1164,111 @@ sendBtn.addEventListener('click', sendMessage);
 
 micBtn.addEventListener('click', () => {
   if (state.isProcessing) return;
-  toggleMic();
+  // 正在录音时点击：停止并切换到键盘模式
+  if (isListening) {
+    _micCleanup();
+  }
+  toggleInputMode();
 });
 
+// 关闭页面时通知服务器停止
+window.addEventListener('beforeunload', () => {
+  navigator.sendBeacon('/api/shutdown', '{}');
+});
+
+// ── 侧边栏 ─────────────────────────────────
+let sidebarOpen = false;
+
+document.getElementById('sidebar-toggle').addEventListener('click', toggleSidebar);
+document.getElementById('sidebar-backdrop').addEventListener('click', toggleSidebar);
+document.getElementById('sidebar-close').addEventListener('click', toggleSidebar);
+
+function toggleSidebar() {
+  sidebarOpen = !sidebarOpen;
+  document.getElementById('sidebar-panel').classList.toggle('open', sidebarOpen);
+  document.getElementById('sidebar-backdrop').classList.toggle('show', sidebarOpen);
+  document.getElementById('sidebar-toggle').classList.toggle('open', sidebarOpen);
+  document.getElementById('sidebar-toggle').textContent = sidebarOpen ? '◀' : '▶';
+}
+
+async function loadSidebarConfig() {
+  try {
+    const resp = await fetch('/api/config');
+    if (!resp.ok) return;
+    const data = await resp.json();
+
+    populateSelect('cfg-llm', data.options.llm, data.current.llm, async (value) => {
+      await postConfig('llm', value);
+    });
+
+    populateSelect('cfg-search', data.options.search, data.current.search, async (value) => {
+      await postConfig('search', value);
+    });
+
+    renderServices(data.services);
+  } catch (e) {
+    console.log('[sidebar] load error:', e);
+  }
+}
+
+function populateSelect(selId, options, current, onChange) {
+  const sel = document.getElementById(selId);
+  if (!sel) return;
+  sel.innerHTML = '';
+  let hasAvailable = false;
+  options.forEach(opt => {
+    const el = document.createElement('option');
+    el.value = opt.id;
+    el.textContent = opt.name;
+    if (!opt.available) { el.disabled = true; }
+    else { hasAvailable = true; }
+    if (opt.id === current) el.selected = true;
+    sel.appendChild(el);
+  });
+  sel.disabled = !hasAvailable;
+  sel.onchange = () => onChange(sel.value);
+}
+
+async function postConfig(engine, value) {
+  try {
+    const resp = await fetch('/api/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ engine, value }),
+    });
+    const data = await resp.json();
+    if (data.status === 'error') {
+      showWarning(data.message || '配置失败');
+    }
+    await loadSidebarConfig();
+  } catch (e) {
+    showWarning('配置更新失败: ' + e.message);
+    await loadSidebarConfig();
+  }
+}
+
+function renderServices(services) {
+  const container = document.getElementById('service-list');
+  if (!container) return;
+  container.innerHTML = '';
+  for (const [name, info] of Object.entries(services)) {
+    const item = document.createElement('div');
+    item.className = 'service-item';
+    const isRunning = info.status === 'running';
+    const displayName = name.charAt(0).toUpperCase() + name.slice(1);
+    let extra = '';
+    if (info.models && info.models.length > 0) {
+      extra = '<div class="service-models">' + escapeHtml(info.models.join(', ')) + '</div>';
+    }
+    item.innerHTML =
+      '<div><span class="service-name">' + displayName + '</span>' + extra + '</div>' +
+      '<span class="status-dot ' + (isRunning ? 'running' : 'stopped') + '"></span>';
+    container.appendChild(item);
+  }
+}
+
 // ── 启动 ───────────────────────────────────
-initApp();
+initApp().then(() => loadSidebarConfig());
 </script>
 </body>
 </html>

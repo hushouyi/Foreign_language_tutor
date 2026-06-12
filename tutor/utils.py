@@ -22,6 +22,8 @@ def parse_response(reply: str):
     # 预处理：移除 --- 周围多余的空行，兼容 AI 格式偏差
     text = re.sub(r'\n\s*\n---', '\n---', text)
     text = re.sub(r'---\s*\n\s*\n', '---\n', text)
+    # 归一化行内 --- 分隔符（AI 有时把 "\n---\n" 写成 " --- "）
+    text = re.sub(r' --- ', '\n---\n', text)
 
     # Pass 1: 标准格式 —— 段间有空行，每段内容 + --- + 翻译
     segments = _parse_standard(text)
@@ -52,11 +54,17 @@ def _parse_standard(text: str):
         if not block:
             continue
         if "\n---" in block:
-            parts = block.split("\n---", 1)
-            content = parts[0].strip()
-            chinese = parts[1].strip(" \n-").strip()
-            if content:
-                segments.append((content, chinese or None))
+            # 一次性切分所有 ---，然后两两配对 (content, translation)
+            parts = block.split("\n---")
+            for i in range(0, len(parts), 2):
+                content = parts[i].strip()
+                if not content:
+                    continue
+                if i + 1 < len(parts):
+                    translation = parts[i+1].strip(" \n-").strip()
+                    segments.append((content, translation or None))
+                else:
+                    segments.append((content, None))
         else:
             stripped = block.strip("- \n")
             if _is_pure_chinese(stripped) or not stripped:

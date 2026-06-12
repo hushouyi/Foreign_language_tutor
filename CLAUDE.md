@@ -4,20 +4,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-AI language tutor — a multilingual conversation partner using DeepSeek LLM + edge-tts voice. **Two UI modes:**
-- **Web** (default): Flask server + WeChat-style browser UI, auto-opens browser, accessible via IP
-- **CLI** (legacy): Rich terminal-based interface
+AI language tutor — a multilingual conversation partner using DeepSeek LLM + edge-tts voice. **Web UI**: Flask server + WeChat-style browser UI, auto-opens browser, accessible via IP.
 
-Keyboard input (both modes), AI responds with text + TTS audio + Chinese translation. User documentation in README.md covers setup, character customization, and adding languages.
+Keyboard input, AI responds with text + TTS audio + Chinese translation. User documentation in README.md covers setup, character customization, and adding languages.
 
 ## Commands
 
 ```bash
-pip install -r requirements.txt         # install deps (requests, edge-tts, miniaudio, rich, flask)
+pip install -r requirements.txt         # install deps (requests, edge-tts, miniaudio, flask)
 pip install pyttsx3                     # (optional) offline TTS, lower quality
-python main.py                          # default: Web mode, auto-open browser
-python main.py --cli                    # CLI mode (legacy Rich interface)
-python main.py --cli --lang japanese    # CLI mode with specific language
+python main.py                          # start web server, auto-open browser
 rm memory/user_profile.json             # clear cross-session AI memory
 ```
 
@@ -31,7 +27,7 @@ No tests, linters, or formatters are configured.
 ## Project structure
 
 ```
-├── main.py                 # Entry point; --cli for terminal, default = Flask web server
+├── main.py                 # Entry point; starts Flask web server
 ├── web_server.py           # Flask server: SSE streaming (NDJSON), TTS audio serving
 ├── templates/
 │   └── chat.html           # Single-page WeChat-style frontend (vanilla JS, no framework)
@@ -67,16 +63,12 @@ No tests, linters, or formatters are configured.
 - **Segment reveal**: AI response segments are buffered during streaming. After `done` event, `revealNextResponseSegment()` shows one segment at a time, plays its audio via AudioContext, then reveals the next on `onended` callback. Status bar shows `[current/total]` progress.
 - **Autoplay unlock**: AudioContext created on page load (suspended). Capture-phase listeners (`click`/`touchstart`/`keydown` with `true`) fire on first interaction → `await audioCtx.resume()` + 50ms dummy buffer to unlock browser autoplay policy.
 
-### CLI mode (legacy): `main.py --cli`
-- **InputEngine** — daemon thread, Windows `msvcrt.getwch()` (arrow keys, backspace, Ctrl+C) falls back to `stdin.readline()` on other platforms. Buffers text; submits on Enter via `queue.Queue`.
-- **Rich Live** loop: check input queue → dispatch API call → poll for response → progressive reveal via `threading.Event` chain → render panels.
-- **MAX_ITEMS = 10** limits displayed panels; input/status panels always visible.
-
-### Common (both modes)
+### Common patterns
 - **Language switching**: `LANG_SWITCH:<key>` → confirm in current lang → `LANG_SWITCH:confirmed:<key>` → switch voice + prompt.
 - **Welcome**: first LLM call generates a creative greeting (non-hardcoded).
 - **API cancellation**: `pending_question` captures user input during AI thinking; the pending response is discarded and a new request fires. Guarded by `api_lock`.
-- Helper functions: `resolve_lang()` (prefix/fuzzy matching), `_script_mismatch()` (CJK drift detection), `_strip_emoji()`.
+- **Script mismatch detection**: warns when English output has CJK or Japanese output lacks it.
+- **Typo-tolerant language resolution**: prefix matching — `"jap"` matches `"japanese"`.
 
 ### `tutor/llm.py` — LLM abstraction
 - `LLMProvider.chat(history, temperature, max_tokens) → str`
@@ -85,8 +77,8 @@ No tests, linters, or formatters are configured.
 
 ### `tutor/tts.py` — TTS abstraction
 - `TTSProvider.speak(text) → bool`, `speak_segments(segments, on_before)`, `cancel()`
-- `EdgeTTSProvider`: edge-tts → `mp3_read_file_s16` → `_trim_silence()` → `PlaybackDevice` (CLI) or `_generate_wav_bytes()` (web). Key patterns:
-  - **Pipeline**: edge-tts MP3 → `mp3_read_file_s16()` decodes to native 1ch 24000Hz PCM → `_trim_silence(threshold=30)` removes ~197ms MP3 encoder silence → `PlaybackDevice.start()` via `stream_raw_pcm_memory` generator.
+- `EdgeTTSProvider`: edge-tts → `mp3_read_file_s16` → `_trim_silence()` → `_generate_wav_bytes()` (web). Key patterns:
+  - **Pipeline**: edge-tts MP3 → `mp3_read_file_s16()` decodes to native 1ch 24000Hz PCM → `_trim_silence(threshold=30)` removes ~197ms MP3 encoder silence.
   - **`cancel()`**: sets `_cancelled` flag → `_play_pcm()` polling loop breaks → `device.stop()`. Response ~0.4s.
   - **`speak_segments()`**: background thread pre-generates next segment PCM. `on_before(idx)` drives progressive UI reveal.
   - **`set_voice(voice)`**: runtime voice switching.
@@ -140,14 +132,6 @@ No tests, linters, or formatters are configured.
 - **Autoplay unlock**: Capture-phase event listeners (`addEventListener(type, handler, true)`) fire before target-phase handlers. Resume AudioContext + 50ms silent dummy buffer on first interaction.
 - **NDJSON streaming**: `POST /api/chat` returns `application/x-ndjson`. Frontend reads with `fetch` + `ReadableStream.getReader()` + `TextDecoder`. Each line is a complete JSON event.
 - **Welcome lazy-cache**: `generate_welcome()` generates on first call, cached in `welcome_data` global. Thread-safe with `welcome_lock`.
-
-### CLI mode
-- **Progressive display via Events**: `speak_segments()` fires `on_before(idx)` → sets `progressive_events[idx]` → main loop reveals segments incrementally in Rich UI.
-- **Audio pre-generation**: background thread generates next WAV during current segment playback.
-
-### Common
-- **Script mismatch detection**: warns when English output has CJK or Japanese output lacks it.
-- **Typo-tolerant language resolution**: prefix matching — `"jap"` matches `"japanese"`.
 
 ## Adding features
 

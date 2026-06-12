@@ -9,7 +9,7 @@ AI 语言助教 - 配置文件
 # ║                      LLM 提供商配置                          ║
 # ╚══════════════════════════════════════════════════════════════╝
 # 提供商相关配置（引擎、API key、URL、模型）统一放在 apikey.py 中。
-# 换模型只需改 apikey.py，此文件不需要动。
+# 本地 Docker 服务地址统一放在 local_config.py 中。
 
 try:
     from apikey import LLM_ENGINE, DEEPSEEK_API_KEY, DEEPSEEK_API_URL, DEEPSEEK_MODEL
@@ -19,6 +19,13 @@ except ImportError:
     DEEPSEEK_API_URL = "https://api.deepseek.com/v1/chat/completions"
     DEEPSEEK_MODEL = "deepseek-v4-flash"
     print("⚠ 未找到 apikey.py，使用占位符。请创建 apikey.py 并填入你的 key。")
+
+try:
+    from local_config import OLLAMA_API_URL, OLLAMA_MODEL, SEARXNG_API_URL
+except ImportError:
+    OLLAMA_API_URL = "http://localhost:11434"
+    OLLAMA_MODEL = "qwen2.5:14b"
+    SEARXNG_API_URL = "http://localhost:8888"
 
 TEMPERATURE = 0.7
 MAX_TOKENS = 600
@@ -203,4 +210,16 @@ LANGUAGE_CONFIGS = {
     #     "prompt": CHARACTER_PROMPT + "【韩语规则】...",
     # },
 }
+
+
+# ╔══════════════════════════════════════════════════════════════╗
+# ║              引擎与功能配置 (Engine & Features)                ║
+# ╚══════════════════════════════════════════════════════════════╝
+
+# 默认引擎（侧边栏未选择时的默认值）
+# LLM: "deepseek" 使用 apikey.py 配置; "local" 使用 local_config.py 配置
+DEFAULT_LLM_ENGINE = "deepseek"
+
+# 联网搜索: "disabled" 关闭; "searxng" 使用本地 SearXNG
+DEFAULT_SEARCH_ENGINE = "disabled"
 

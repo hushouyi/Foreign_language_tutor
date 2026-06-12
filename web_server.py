@@ -2,8 +2,7 @@
 Web 服务器 — AI 语言助教的浏览器界面
 =====================================
 用法:
-  python main.py              # 默认启动 Web 模式，自动打开浏览器
-  python main.py --cli        # 启动 CLI 模式
+  python main.py              # 启动 Web 模式，自动打开浏览器
 
 在浏览器中打开 http://localhost:5000
 """
@@ -28,6 +27,7 @@ from tutor.llm import create_llm_provider
 from tutor.memory import MemoryManager
 from tutor.tts import create_tts_provider
 from tutor.utils import parse_response, split_segments
+from tutor import service_detector
 
 app = Flask(__name__)
 
@@ -41,6 +41,10 @@ current_lang: dict = cfg.LANGUAGE_CONFIGS["english"]
 audio_cache: dict[str, bytes] = {}
 welcome_data: dict | None = None
 welcome_lock = threading.Lock()
+
+# 引擎与功能配置（运行时，可通过 /api/config 切换）
+current_llm_engine: str = cfg.DEFAULT_LLM_ENGINE   # "deepseek" | "local"
+current_search_engine: str = cfg.DEFAULT_SEARCH_ENGINE  # "disabled" | "searxng"
 
 
 # ── 工具函数 ──────────────────────────────────────
@@ -324,6 +328,105 @@ def api_status():
         "lang_key": current_lang_key,
         "lang_display": current_lang["display"],
     })
+
+
+@app.route("/api/config", methods=["GET", "POST"])
+def api_config():
+    """获取/更新引擎与功能配置"""
+    global current_llm_engine, current_search_engine
+
+    if request.method == "GET":
+        services = service_detector.detect_all()
+        local_llm_available = services["ollama"]["status"] == "running"
+        search_available = services["searxng"]["status"] == "running"
+
+        options = {
+            "llm": [
+                {"id": "deepseek", "name": "DeepSeek API", "available": True},
+                {"id": "local", "name": "本地模型 (Ollama)", "available": local_llm_available},
+            ],
+            "search": [
+                {"id": "disabled", "name": "关闭", "available": True},
+                {"id": "searxng", "name": "SearXNG (本地)", "available": search_available},
+            ],
+        }
+
+        return jsonify({
+            "current": {
+                "llm": current_llm_engine,
+                "search": current_search_engine,
+            },
+            "options": options,
+            "services": services,
+        })
+
+    # POST: 切换配置
+    data = request.get_json(force=True)
+    engine = data.get("engine")
+    value = data.get("value")
+
+    if engine == "llm":
+        if value == "local":
+            services = service_detector.detect_all()
+            if services["ollama"]["status"] != "running":
+                return jsonify({"status": "error", "message": "Ollama 服务未运行"}), 400
+            _recreate_llm("local")
+            current_llm_engine = "local"
+        else:
+            _recreate_llm("deepseek")
+            current_llm_engine = "deepseek"
+        return jsonify({"status": "ok", "current": {"llm": current_llm_engine}})
+
+    elif engine == "search":
+        if value == "searxng":
+            services = service_detector.detect_all()
+            if services["searxng"]["status"] != "running":
+                return jsonify({"status": "error", "message": "SearXNG 服务未运行"}), 400
+        current_search_engine = value
+        return jsonify({"status": "ok", "current": {"search": current_search_engine}})
+
+    return jsonify({"status": "error", "message": "未知引擎"}), 400
+
+
+def _recreate_llm(engine: str):
+    """重新创建 LLM provider（切换引擎）"""
+    global llm, conv, tts, memory
+    if engine == "local":
+        config = {
+            "LLM_ENGINE": "deepseek",
+            "DEEPSEEK_API_KEY": "ollama",
+            "DEEPSEEK_API_URL": cfg.OLLAMA_API_URL + "/v1/chat/completions",
+            "DEEPSEEK_MODEL": cfg.OLLAMA_MODEL,
+            "API_TIMEOUT": cfg.API_TIMEOUT,
+        }
+    else:
+        config = {
+            "LLM_ENGINE": cfg.LLM_ENGINE,
+            "DEEPSEEK_API_KEY": cfg.DEEPSEEK_API_KEY,
+            "DEEPSEEK_API_URL": cfg.DEEPSEEK_API_URL,
+            "DEEPSEEK_MODEL": cfg.DEEPSEEK_MODEL,
+            "API_TIMEOUT": cfg.API_TIMEOUT,
+        }
+
+    config["TTS_ENGINE"] = cfg.TTS_ENGINE
+    config["PYTTX3_RATE"] = 160
+    config["PYTTX3_VOLUME"] = 0.9
+    config["ASR_ENGINE"] = cfg.ASR_ENGINE
+    config["lang"] = current_lang
+
+    llm = create_llm_provider(config)
+    conv._llm = llm
+
+
+@app.route("/api/shutdown", methods=["POST"])
+def api_shutdown():
+    """关闭 Flask 服务器（由浏览器 tab 关闭时触发）"""
+    # 确保响应返回后再退出，0.5s 后强制终止进程
+    threading.Thread(target=lambda: (
+        time.sleep(0.5),
+        os._exit(0)
+    ), daemon=True).start()
+    return jsonify({"status": "shutting_down"})
 
 
 # ── 启动 ──────────────────────────────────────────
