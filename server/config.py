@@ -8,8 +8,8 @@ AI 语言助教 - 配置文件
 # ╔══════════════════════════════════════════════════════════════╗
 # ║                      LLM 提供商配置                          ║
 # ╚══════════════════════════════════════════════════════════════╝
-# 提供商相关配置（引擎、API key、URL、模型）统一放在 apikey.py 中。
-# 本地 Docker 服务地址统一放在 local_config.py 中。
+# API Key / 模型等敏感配置在根目录 apikey.py（gitignored）。
+# 本地 Docker 服务地址见下方。
 
 try:
     from apikey import LLM_ENGINE, DEEPSEEK_API_KEY, DEEPSEEK_API_URL, DEEPSEEK_MODEL
@@ -20,12 +20,10 @@ except ImportError:
     DEEPSEEK_MODEL = "deepseek-v4-flash"
     print("⚠ 未找到 apikey.py，使用占位符。请创建 apikey.py 并填入你的 key。")
 
-try:
-    from local_config import OLLAMA_API_URL, OLLAMA_MODEL, SEARXNG_API_URL
-except ImportError:
-    OLLAMA_API_URL = "http://localhost:11434"
-    OLLAMA_MODEL = "qwen2.5:14b"
-    SEARXNG_API_URL = "http://localhost:8999"
+# ── 本地 Docker 服务地址 ─────────────────────────────────────
+OLLAMA_API_URL = "http://localhost:11434"
+OLLAMA_MODEL = "qwen2.5:14b"
+SEARXNG_API_URL = "http://localhost:8999"
 
 TEMPERATURE = 0.7
 MAX_TOKENS = 600
@@ -217,7 +215,7 @@ LANGUAGE_CONFIGS = {
 # ╚══════════════════════════════════════════════════════════════╝
 
 # 默认引擎（侧边栏未选择时的默认值）
-# LLM: "deepseek" 使用 apikey.py 配置; "local" 使用 local_config.py 配置
+# LLM: "deepseek" 使用 apikey.py 配置; "local" 使用本地 Ollama
 DEFAULT_LLM_ENGINE = "deepseek"
 
 # 联网搜索: "disabled" 关闭; "searxng" 使用本地 SearXNG
@@ -258,4 +256,3 @@ SEARCH_DECISION_PROMPT = (
     "  SEARCH_NEEDED: <search keywords in English>\n"
     "  SEARCH_NOT_NEEDED\n"
 )
-

@@ -9,7 +9,7 @@
     已确认: LANG_SWITCH:confirmed:english
 """
 
-import config as cfg
+from server import config as cfg
 from tutor.utils import parse_response, split_segments
 
 

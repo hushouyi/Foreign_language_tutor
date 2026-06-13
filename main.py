@@ -5,11 +5,9 @@ AI 语言助教 - Web 模式入口
   python main.py                    # 启动 Web 界面
 """
 
-import sys
-import os
-
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from web_server import run_web_server
+from server import create_app
 
 if __name__ == "__main__":
-    run_web_server()
+    app = create_app()
+    from server import config as cfg
+    app.run(host=cfg.WEB_HOST, port=cfg.WEB_PORT, debug=False, threaded=True)

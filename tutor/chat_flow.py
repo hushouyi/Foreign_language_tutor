@@ -11,7 +11,7 @@ import threading
 import uuid
 from typing import Generator
 
-import config as cfg
+from server import config as cfg
 from tutor import lang_switcher
 from tutor.format_checker import build_reminder, check_all
 from tutor.search_broker import SearchBroker

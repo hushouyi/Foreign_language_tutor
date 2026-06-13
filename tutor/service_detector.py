@@ -5,7 +5,7 @@
 """
 import urllib.request
 import json
-import config as cfg
+from server import config as cfg
 
 
 def _http_get(url: str, timeout: int = 3) -> dict | None:

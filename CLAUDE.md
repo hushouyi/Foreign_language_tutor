@@ -27,9 +27,14 @@ No tests, linters, or formatters are configured.
 ## Project structure
 
 ```
-├── main.py                 # Entry point; starts Flask web server
-├── web_server.py           # Flask server: SSE streaming (NDJSON), TTS audio serving
+├── main.py                 # Entry point; from server import create_app
+├── apikey.py               # Gitignored — API key, model name, URL
 ├── docker-compose.yml      # Docker services (SearXNG, Ollama, etc.)
+├── server/                 # Flask application
+│   ├── __init__.py         #   create_app() factory, init_providers, globals
+│   ├── routes.py           #   All Flask routes (@app.route)
+│   ├── config.py           #   All config (merged from old config.py + local_config.py)
+│   └── state.py            #   Mutable shared state (chat_flow, cache, engines)
 ├── templates/
 │   └── chat.html           # Single-page WeChat-style frontend (vanilla JS, no framework)
 ├── static/
@@ -44,31 +49,29 @@ No tests, linters, or formatters are configured.
 │       ├── asr.js          # Web Speech API voice recognition
 │       ├── sidebar.js      # Config panel sidebar
 │       └── scroll.js       # Auto-scroll to bottom
-├── config.py               # Character prompt, language configs, engine selection, web settings
-├── local_config.py         # Local Docker service URLs
-├── apikey.py               # Gitignored — API key, model name, URL
-├── requirements.txt
+├── config/                  # (reserved — future config consolidation)
 ├── memory/
 │   └── user_profile.json   # Auto-created; cross-session AI memory (gitignored)
-└── tutor/                  # Plugin-style modules with ABCs + factory functions
-    ├── llm.py              # LLMProvider → DeepSeekProvider (OpenAI-compat REST)
-    ├── tts.py              # TTSProvider → EdgeTTSProvider / Pyttsx3Provider
-    ├── asr.py              # ASRProvider → KeyboardInputProvider (mic placeholder)
-    ├── search.py           # SearchProvider → SearXNG search
-    ├── conversation.py     # Conversation — history management, truncation, system prompt
-    ├── memory.py           # MemoryManager — JSON-persisted user profile, MEMORY_SAVE: protocol
-    ├── chat_flow.py        # ChatFlow orchestrator — wires LLM+TTS+search+memory+switch
-    ├── search_broker.py    # Search decision logic + result injection
-    ├── lang_switcher.py    # Language switch protocol parser (LANG_SWITCH:<key>)
-    ├── audio_cache.py      # Bounded TTS audio cache with LRU eviction
-    ├── format_checker.py   # AI reply format validation
-    ├── service_detector.py # Local service health checks (Ollama, SearXNG)
-    └── utils.py            # parse_response(), split_segments() — AI reply parser
+└── tutor/                  # Business logic modules
+    ├── __init__.py         #   Public API exports
+    ├── llm.py              #   LLMProvider → DeepSeekProvider (OpenAI-compat REST)
+    ├── tts.py              #   TTSProvider → EdgeTTSProvider / Pyttsx3Provider
+    ├── asr.py              #   ASRProvider → KeyboardInputProvider (mic placeholder)
+    ├── search.py           #   SearchProvider → SearXNG search
+    ├── conversation.py     #   Conversation — history management, truncation, system prompt
+    ├── memory.py           #   MemoryManager — JSON-persisted user profile, MEMORY_SAVE: protocol
+    ├── chat_flow.py        #   ChatFlow orchestrator — wires LLM+TTS+search+memory+switch
+    ├── search_broker.py    #   Search decision logic + result injection
+    ├── lang_switcher.py    #   Language switch protocol parser (LANG_SWITCH:<key>)
+    ├── audio_cache.py      #   Bounded TTS audio cache with LRU eviction
+    ├── format_checker.py   #   AI reply format validation
+    ├── service_detector.py #   Local service health checks (Ollama, SearXNG)
+    └── utils.py            #   parse_response(), split_segments() — AI reply parser
 ```
 
 ## Core architecture
 
-### Web mode (default): `web_server.py` + `templates/chat.html`
+### Web mode (default): `server/routes.py` + `templates/chat.html`
 - **Flask** server with SSE streaming via NDJSON (newline-delimited JSON over `POST /api/chat`).
 - **WeChat-style frontend**: pure vanilla JS, flexbox layout, chat bubbles (green=user, white=AI), auto-scroll, audio playback via Web Audio API (AudioContext).
 - **Stream protocol**: `POST /api/chat` returns `application/x-ndjson`:
@@ -128,7 +131,7 @@ No tests, linters, or formatters are configured.
   3. **Pure foreign**: no CJK → content with null translation.
 - `split_segments(segments)`: if only 1 segment >80 chars, split on sentence boundaries (`.!?` or `。！？`).
 
-## Configuration (`config.py`)
+## Configuration (`server/config.py`)
 
 | Key | Description |
 |-----|-------------|
@@ -145,7 +148,7 @@ No tests, linters, or formatters are configured.
 | `WEB_HOST` / `WEB_PORT` | `"0.0.0.0"` / `5000` (web mode) |
 | `AUTO_OPEN_BROWSER` | `True` (web mode auto-opens browser) |
 
-`apikey.py` (gitignored): `LLM_ENGINE`, `DEEPSEEK_API_KEY`, `DEEPSEEK_API_URL`, `DEEPSEEK_MODEL`. Imported by `config.py` with fallback placeholders if missing.
+`apikey.py` (gitignored): `LLM_ENGINE`, `DEEPSEEK_API_KEY`, `DEEPSEEK_API_URL`, `DEEPSEEK_MODEL`. Imported by `server/config.py` with fallback placeholders if missing.
 
 ## Key patterns
 
@@ -157,5 +160,5 @@ No tests, linters, or formatters are configured.
 
 ## Adding features
 
-- **New language**: add entry to `config.py` `LANGUAGE_CONFIGS` (display name, voice, names, confirm text, prompt).
+- **New language**: add entry to `server/config.py` `LANGUAGE_CONFIGS` (display name, voice, names, confirm text, prompt).
 - **New LLM/TTS/ASR provider**: implement ABC in `tutor/*.py`, register in the factory function.

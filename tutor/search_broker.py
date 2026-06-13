@@ -13,7 +13,7 @@
             conv.history.append({"role": "system", "content": context})
 """
 
-import config as cfg
+from server import config as cfg
 
 
 class SearchBroker:
