@@ -13,7 +13,7 @@ from typing import Generator
 
 from server import config as cfg
 from tutor import lang_switcher
-from tutor.format_checker import build_reminder, check_all
+from tutor.format_checker import build_reminder, check_all, detect_refusal
 from tutor.search_broker import SearchBroker
 from tutor.utils import parse_response, split_segments
 
@@ -128,18 +128,33 @@ class ChatFlow:
 
         reply = self.memory.process_reply(reply)
 
-        # ── 4. LANG_SWITCH 协议 ──
+        # ── 4. 拒绝检测：LLM 内置安全过滤（如 DeepSeek）导致无法回答 ──
+        if detect_refusal(reply):
+            # 先移除 user + assistant 消息，让搜索上下文成为最后一条
+            if self.conv.history and self.conv.history[-1]["role"] == "assistant":
+                self.conv.history.pop()
+            if self.conv.history and self.conv.history[-1]["role"] == "user":
+                self.conv.history.pop()
+            # 再回滚搜索上下文（此时它在 history 末尾）
+            self._rollback_search(search_context)
+            if search_context:
+                yield from self._emit_search_fallback(search_context)
+            else:
+                yield from self._emit_no_answer()
+            return
+
+        # ── 5. LANG_SWITCH 协议 ──
         if reply.startswith("LANG_SWITCH:"):
             yield from self._handle_switch(reply)
             return
 
-        # ── 5. 错误 ──
+        # ── 6. 错误 ──
         if reply.startswith("ERROR:"):
             yield self._event("error", message=reply[6:])
             yield self._event("done")
             return
 
-        # ── 6. 正常回复 ──
+        # ── 7. 正常回复 ──
         yield from self._emit_reply(reply)
 
     # ── 内部方法 ──────────────────────────────────
@@ -215,6 +230,61 @@ class ChatFlow:
             last = self.conv.history[-1]
             if last.get("role") == "system" and last.get("content") == search_context:
                 self.conv.history.pop()
+
+    def _emit_search_fallback(self, search_context: str) -> Generator[str, None, None]:
+        """LLM 拒绝回答但有搜索数据时，用搜索结果直接构建回复。"""
+        results = self._parse_search_results(search_context)
+
+        if results:
+            intro = "Here's what I found on the web:"
+            translation = "以下是在网上找到的信息："
+            yield self._event("segment", index=0, content=intro, translation=translation)
+            yield from self._gen_audio(intro, 0)
+
+            for i, (title, snippet) in enumerate(results, 1):
+                content = f"{title}: {snippet}"[:200] if snippet else title[:200]
+                translation = f"搜索结果 {i}"
+                yield self._event("segment", index=i, content=content, translation=translation)
+                if i == 1:
+                    yield from self._gen_audio(content, i)
+        else:
+            yield self._event("segment", index=0,
+                content="I wasn't able to find a good answer for that.",
+                translation="我没能找到相关的信息。")
+
+        yield self._event("done")
+
+    def _emit_no_answer(self) -> Generator[str, None, None]:
+        """LLM 拒绝回答且没有搜索数据时，发送礼貌的不知情回复。"""
+        yield self._event("segment", index=0,
+            content="I don't have reliable information about that.",
+            translation="我没有关于这个问题的可靠信息。")
+        yield self._event("done")
+
+    @staticmethod
+    def _parse_search_results(search_context: str) -> list[tuple[str, str]]:
+        """解析搜索结果文本为 (title, snippet) 列表。"""
+        results = []
+        lines = search_context.split('\n')
+        current_title = None
+        current_parts = []
+
+        for line in lines:
+            stripped = line.strip()
+            # 匹配 "N. Title" 格式的行
+            if stripped and stripped[0].isdigit() and '. ' in stripped[:4]:
+                if current_title:
+                    results.append((current_title, ' '.join(current_parts)))
+                dot_pos = stripped.index('. ')
+                current_title = stripped[dot_pos + 2:]
+                current_parts = []
+            elif stripped and current_title and not stripped.startswith(('【', 'http')):
+                current_parts.append(stripped)
+
+        if current_title:
+            results.append((current_title, ' '.join(current_parts)))
+
+        return [(t, s) for t, s in results if len(t) > 3][:3]
 
     def generate_welcome(self) -> dict:
         """生成欢迎词（缓存，仅首次调用时真正生成）。"""

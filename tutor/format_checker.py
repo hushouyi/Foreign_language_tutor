@@ -59,3 +59,44 @@ def check_all(segments: list, lang_key: str) -> list[str]:
         warnings.append("AI 用了其他语言回复")
     warnings.extend(check_missing_translations(segments))
     return warnings
+
+
+def detect_refusal(reply: str) -> bool:
+    """检测 AI 回复是否拒绝了回答问题。
+
+    某些模型（如 DeepSeek）内置安全过滤，会拒绝回答问题并输出说教内容。
+    此函数检测这种情况，以便系统跳过 LLM 回复，改用搜索数据替补。
+
+    返回 True 表示检测到拒绝，False 表示正常回答。
+    """
+    lower = reply.lower().strip()
+
+    # 拒绝回答的常见信号
+    refusal_signals = [
+        "don't have a reliable answer",
+        "don't have personal experience",
+        "don't have data or personal",
+        "don't feel comfortable",
+        "don't actually know",
+        "cannot provide",
+        "i'm not able to",
+        "i'm an ai",
+        "not appropriate",
+        "let's talk about something else",
+        "i'm here to help you practice",
+        "that's not something i can",
+        "i can't actually",
+        "no reliable data",
+        "would be inappropriate",
+        "let's keep the conversation",
+        "i don't really have",
+        "i don't have access to",
+    ]
+
+    matches = sum(1 for s in refusal_signals if s in lower)
+    # 命中 2 条以上信号 + 回复中包含"说教"特征
+    has_lecture = any(word in lower for word in [
+        "objectify", "objectifying", "inappropriate",
+        "let's focus", "i'm here to",
+    ])
+    return matches >= 2 or (matches >= 1 and has_lecture)
