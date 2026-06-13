@@ -1,0 +1,16 @@
+services:
+  searxng:
+    image: searxng/searxng:latest
+    container_name: searxng
+    ports:
+      - "8999:8080"
+    volumes:
+      - ./docker/searxng:/etc/searxng:rw
+    environment:
+      - SEARXNG_BASE_URL=http://localhost:8999/
+      - SEARXNG_SECRET_KEY=${SEARXNG_SECRET_KEY:-change_this_to_random_string}
+      - UWSGI_WORKERS=2
+      - UWSGI_THREADS=4
+    cap_add:
+      - CHOWN
+    restart: unless-stopped

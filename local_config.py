@@ -9,7 +9,7 @@ OLLAMA_API_URL = "http://localhost:11434"
 OLLAMA_MODEL = "qwen2.5:14b"
 
 # ── 本地联网搜索（SearXNG） ────────────────────
-SEARXNG_API_URL = "http://localhost:8888"
+SEARXNG_API_URL = "http://localhost:8999"
 
 # ── (预留) 本地语音识别 ────────────────────────
 # WHISPER_MODEL = "large-v3"

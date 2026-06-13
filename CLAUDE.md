@@ -29,9 +29,23 @@ No tests, linters, or formatters are configured.
 ```
 ├── main.py                 # Entry point; starts Flask web server
 ├── web_server.py           # Flask server: SSE streaming (NDJSON), TTS audio serving
+├── docker-compose.yml      # Docker services (SearXNG, Ollama, etc.)
 ├── templates/
 │   └── chat.html           # Single-page WeChat-style frontend (vanilla JS, no framework)
+├── static/
+│   ├── css/
+│   │   └── chat.css        # Chat UI styles
+│   └── js/                 # ES modules (type="module", no bundler)
+│       ├── app.js          # Entry: module wiring, global events
+│       ├── state.js        # Global state singleton
+│       ├── chat-ui.js      # DOM manipulation (messages, status, input)
+│       ├── stream-reader.js # NDJSON stream reader
+│       ├── audio-player.js # Audio playback via Web Audio API
+│       ├── asr.js          # Web Speech API voice recognition
+│       ├── sidebar.js      # Config panel sidebar
+│       └── scroll.js       # Auto-scroll to bottom
 ├── config.py               # Character prompt, language configs, engine selection, web settings
+├── local_config.py         # Local Docker service URLs
 ├── apikey.py               # Gitignored — API key, model name, URL
 ├── requirements.txt
 ├── memory/
@@ -40,8 +54,15 @@ No tests, linters, or formatters are configured.
     ├── llm.py              # LLMProvider → DeepSeekProvider (OpenAI-compat REST)
     ├── tts.py              # TTSProvider → EdgeTTSProvider / Pyttsx3Provider
     ├── asr.py              # ASRProvider → KeyboardInputProvider (mic placeholder)
+    ├── search.py           # SearchProvider → SearXNG search
     ├── conversation.py     # Conversation — history management, truncation, system prompt
     ├── memory.py           # MemoryManager — JSON-persisted user profile, MEMORY_SAVE: protocol
+    ├── chat_flow.py        # ChatFlow orchestrator — wires LLM+TTS+search+memory+switch
+    ├── search_broker.py    # Search decision logic + result injection
+    ├── lang_switcher.py    # Language switch protocol parser (LANG_SWITCH:<key>)
+    ├── audio_cache.py      # Bounded TTS audio cache with LRU eviction
+    ├── format_checker.py   # AI reply format validation
+    ├── service_detector.py # Local service health checks (Ollama, SearXNG)
     └── utils.py            # parse_response(), split_segments() — AI reply parser
 ```
 
@@ -119,6 +140,7 @@ No tests, linters, or formatters are configured.
 | `TEMPERATURE` | 0.7 |
 | `MAX_TOKENS` | 600 |
 | `MAX_HISTORY_ROUNDS` | 20 |
+| `VOICE_SILENCE_TIMEOUT` | Voice silence timeout in seconds (0=manual) | `3` |
 | `API_TIMEOUT` | 30 seconds |
 | `WEB_HOST` / `WEB_PORT` | `"0.0.0.0"` / `5000` (web mode) |
 | `AUTO_OPEN_BROWSER` | `True` (web mode auto-opens browser) |

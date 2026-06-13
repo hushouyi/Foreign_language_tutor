@@ -11,7 +11,7 @@ import config as cfg
 def _http_get(url: str, timeout: int = 3) -> dict | None:
     """尝试 GET 请求，成功返回响应 JSON，失败返回 None"""
     try:
-        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0", "X-Forwarded-For": "127.0.0.1"})
         resp = urllib.request.urlopen(req, timeout=timeout)
         ctype = resp.headers.get("Content-Type", "")
         body = resp.read().decode("utf-8", errors="replace")

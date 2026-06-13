@@ -25,7 +25,7 @@ try:
 except ImportError:
     OLLAMA_API_URL = "http://localhost:11434"
     OLLAMA_MODEL = "qwen2.5:14b"
-    SEARXNG_API_URL = "http://localhost:8888"
+    SEARXNG_API_URL = "http://localhost:8999"
 
 TEMPERATURE = 0.7
 MAX_TOKENS = 600
@@ -221,5 +221,41 @@ LANGUAGE_CONFIGS = {
 DEFAULT_LLM_ENGINE = "deepseek"
 
 # 联网搜索: "disabled" 关闭; "searxng" 使用本地 SearXNG
-DEFAULT_SEARCH_ENGINE = "disabled"
+# 默认开启（需要先启动 Docker: docker compose up -d）
+DEFAULT_SEARCH_ENGINE = "searxng"
+
+# 语音识别静默超时（秒）
+# 0 = 手动模式：仅按空格开始/结束，不自动发送
+# 1-5 = 静默 N 秒后自动发送
+VOICE_SILENCE_TIMEOUT = 3
+
+# 搜索能力提示（搜索开关开启时追加到人设中，让 Alice 自己判断是否搜索）
+SEARCH_CAPABILITY_PROMPT = (
+    "【搜索能力】\n"
+    "你有联网搜索能力。根据上下文判断用户是否需要实时信息。\n"
+    "需要搜索的情况：天气、新闻、价格、当前事件、你不确定的事实、\n"
+    "  用户明确要求查询的信息、任何你觉得需要查证的内容。\n"
+    "不需要搜索的情况：闲聊、观点讨论、你已经确定知道的知识、\n"
+    "  用户分享个人经历、日常问候、一般性建议。\n"
+    "\n"
+    "先做决策，只输出一行，不要输出其他内容：\n"
+    "  需要搜索 → SEARCH_NEEDED: <搜索关键词（用英语）>\n"
+    "  不需要 → SEARCH_NOT_NEEDED\n"
+)
+
+# 搜索决策提示（轻量版，不包含完整人设的格式要求，避免冲突）
+SEARCH_DECISION_PROMPT = (
+    "You are {name}, a language tutor. The user is practicing {lang}.\n"
+    "You have internet search capability.\n"
+    "Based on the conversation context, decide if you need to search the web.\n"
+    "\n"
+    "Search needed for: weather, news, prices, current events,\n"
+    "  facts you're unsure of, or anything needing real-time data.\n"
+    "No search needed for: casual chat, greetings, opinions,\n"
+    "  general knowledge, or the user's personal experiences.\n"
+    "\n"
+    "Output ONLY one line, nothing else:\n"
+    "  SEARCH_NEEDED: <search keywords in English>\n"
+    "  SEARCH_NOT_NEEDED\n"
+)
 
